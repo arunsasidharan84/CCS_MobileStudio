@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<StartupInfo>
+  <StartupInfoItem itemName="siSubject">10</StartupInfoItem>
+  <StartupInfoItem itemName="siSession">2</StartupInfoItem>
+  <StartupInfoItem itemName="Group">TEST</StartupInfoItem>
+  <StartupInfoItem itemName="Name">vrin</StartupInfoItem>
+  <StartupInfoItem itemName="Age">30</StartupInfoItem>
+  <StartupInfoItem itemName="Gender">female</StartupInfoItem>
+  <StartupInfoItem itemName="Handedness">right</StartupInfoItem>
+  <StartupInfoItem itemName="ResearcherID">VRIN</StartupInfoItem>
+  <StartupInfoItem itemName="Language">english</StartupInfoItem>
+</StartupInfo>

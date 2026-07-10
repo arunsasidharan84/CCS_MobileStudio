@@ -1,0 +1,12 @@
+[package]
+name = "train_nidra_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "train_nidra_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chrono = "0.4.45"
+tract-onnx = "0.21"

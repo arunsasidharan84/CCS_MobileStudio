@@ -1,0 +1,78 @@
+name: ccs_mobile_studio
+description: "CCS Mobile Studio - Unified EEG Research Platform (trainNIDRA + ANGEL + AdaptiveWM)"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+  # EEG / BLE / LSL
+  flutter_blue_plus: ^2.3.8
+  flutter_bluetooth_serial: ^0.4.0
+  liblsl: ^0.13.2+0
+
+  # Native FFI (Rust bridge)
+  ffi: ^2.2.0
+
+  # File & storage
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.3
+  file_picker: ^8.0.0
+  share_plus: ^10.0.2
+  csv: ^8.0.0
+
+  # Audio (for beep alerts and stimulation playback)
+  audioplayers: ^6.0.0
+
+  # PDF generation (ANGEL + WM summaries)
+  pdf: ^3.10.4
+  printing: ^5.12.0
+
+  # State management
+  provider: ^6.1.5
+
+  # Charts for PDF (hand-drawn, no external dep needed)
+  # intl for date formatting
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+dependency_overrides:
+  android_libcpp_shared:
+    path: third_party/android_libcpp_shared
+  flutter_bluetooth_serial:
+    path: third_party/flutter_bluetooth_serial
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    # TinySleepNet ONNX models (for NIDRA module)
+    - assets/models/tinysleepnet-supratak/config.json
+    - assets/models/tinysleepnet-supratak/metrics.json
+    - assets/models/tinysleepnet-supratak/model.onnx
+    - assets/models/tinysleepnet-supratak/model.onnx.data
+    - assets/models/tinysleepnet-supratak/wearable_model.onnx
+    - assets/models/tinysleepnet-supratak/wearable_model.onnx.data
+    - assets/models/tinysleepnet-supratak/psg_model.onnx
+    - assets/models/tinysleepnet-supratak/psg_model.onnx.data
+    # ANGEL ERP stimuli
+    - assets/EPrimeFiles/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level2_Template/resources/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level2_Template/english/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level2_Template/hindi/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level2_Template/kannada/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level3_Template/resources/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level3_Template/english/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level3_Template/hindi/
+    - assets/EPrimeFiles/CCS_EEG_ANGELv2_Level3_Template/kannada/
