@@ -6,10 +6,7 @@ import 'erp_engine.dart';
 
 /// Module controller for ANGEL Cognitive ERP Paradigm.
 class AngelModule extends ChangeNotifier {
-  AngelModule({
-    required this.sessionManager,
-    required this.alertService,
-  });
+  AngelModule({required this.sessionManager, required this.alertService});
 
   final SessionManager sessionManager;
   final AlertService alertService;

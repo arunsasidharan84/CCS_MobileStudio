@@ -65,8 +65,14 @@ class SummaryReportService {
     final dataDir = Directory('${dir.path}/data');
     if (!await dataDir.exists()) await dataDir.create(recursive: true);
 
-    final cleanSubject = participant.trim().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final stamp = sessionStart.toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
+    final cleanSubject = participant.trim().replaceAll(
+      RegExp(r'[^A-Za-z0-9_-]'),
+      '_',
+    );
+    final stamp = sessionStart.toIso8601String().replaceAll(
+      RegExp(r'[:.]'),
+      '-',
+    );
     final filePath = '${dataDir.path}/${cleanSubject}_summary_$stamp.pdf';
 
     final file = File(filePath);
@@ -75,10 +81,21 @@ class SummaryReportService {
     return filePath;
   }
 
-  static _BlockStat _computeBlockStat(List<Map<String, dynamic>> trials, int block) {
+  static _BlockStat _computeBlockStat(
+    List<Map<String, dynamic>> trials,
+    int block,
+  ) {
     if (trials.isEmpty) {
-      return _BlockStat(block: block, total: 0, correct: 0, missCount: 0,
-          rtValues: [], accuracy: 0, meanRt: 0, semRt: 0);
+      return _BlockStat(
+        block: block,
+        total: 0,
+        correct: 0,
+        missCount: 0,
+        rtValues: [],
+        accuracy: 0,
+        meanRt: 0,
+        semRt: 0,
+      );
     }
 
     final activeTrials = trials.where((r) {
@@ -93,10 +110,16 @@ class SummaryReportService {
     for (final r in activeTrials) {
       // FIXED FIELD MAPPINGS (accuracy / correct, rt / rt_ms)
       final accVal = r['accuracy'] ?? r['correct'];
-      final isCorrect = accVal == true || accVal == 1 || accVal == '1' || '${accVal}'.toLowerCase() == 'true';
-      
+      final isCorrect =
+          accVal == true ||
+          accVal == 1 ||
+          accVal == '1' ||
+          '${accVal}'.toLowerCase() == 'true';
+
       final rt = r['rt'] ?? r['rt_ms'];
-      final rtVal = rt is double ? rt : (rt is int ? rt.toDouble() : double.tryParse('$rt'));
+      final rtVal = rt is double
+          ? rt
+          : (rt is int ? rt.toDouble() : double.tryParse('$rt'));
       final resp = '${r['response']}'.toLowerCase();
 
       if (resp == 'none' || resp == 'miss' || resp.isEmpty) {
@@ -109,14 +132,19 @@ class SummaryReportService {
 
     final total = activeTrials.length;
     final accuracy = total > 0 ? correct / total : 0.0;
-    final meanRt = rtValues.isEmpty ? 0.0 : rtValues.reduce((a, b) => a + b) / rtValues.length;
+    final meanRt = rtValues.isEmpty
+        ? 0.0
+        : rtValues.reduce((a, b) => a + b) / rtValues.length;
     final semRt = rtValues.length > 1
         ? () {
-            final variance = rtValues
+            final variance =
+                rtValues
                     .map((v) => (v - meanRt) * (v - meanRt))
                     .reduce((a, b) => a + b) /
                 rtValues.length;
-            return variance == 0 ? 0.0 : (variance.abs().sqrt() / rtValues.length.toDouble().sqrt());
+            return variance == 0
+                ? 0.0
+                : (variance.abs().sqrt() / rtValues.length.toDouble().sqrt());
           }()
         : 0.0;
 
@@ -139,8 +167,10 @@ class SummaryReportService {
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text('ANGEL ERP Session Report',
-                style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
+            pw.Text(
+              'ANGEL ERP Session Report',
+              style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
+            ),
             pw.Text(
               '${sessionStart.day.toString().padLeft(2, '0')}'
               '/${sessionStart.month.toString().padLeft(2, '0')}'
@@ -153,8 +183,10 @@ class SummaryReportService {
         ),
         pw.Divider(thickness: 1.5, color: PdfColors.teal700),
         pw.SizedBox(height: 4),
-        pw.Text('Participant: $participant',
-            style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+        pw.Text(
+          'Participant: $participant',
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+        ),
       ],
     );
   }
@@ -174,8 +206,14 @@ class SummaryReportService {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text('Overall Performance',
-              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.teal900)),
+          pw.Text(
+            'Overall Performance',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.teal900,
+            ),
+          ),
           pw.SizedBox(height: 8),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
@@ -195,17 +233,35 @@ class SummaryReportService {
   static pw.Widget _statBox(String label, String value, PdfColor color) {
     return pw.Column(
       children: [
-        pw.Text(value,
-            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: color)),
-        pw.Text(label,
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+        pw.Text(
+          value,
+          style: pw.TextStyle(
+            fontSize: 18,
+            fontWeight: pw.FontWeight.bold,
+            color: color,
+          ),
+        ),
+        pw.Text(
+          label,
+          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+        ),
       ],
     );
   }
 
   static pw.Widget _buildBlockTable(
-      List<int> blocks, Map<int, _BlockStat> stats) {
-    final headers = ['Block', 'Trials', 'Correct', 'Misses', 'Accuracy %', 'Mean RT (ms)', 'SEM RT'];
+    List<int> blocks,
+    Map<int, _BlockStat> stats,
+  ) {
+    final headers = [
+      'Block',
+      'Trials',
+      'Correct',
+      'Misses',
+      'Accuracy %',
+      'Mean RT (ms)',
+      'SEM RT',
+    ];
     final rows = blocks.map((b) {
       final s = stats[b]!;
       return [
@@ -222,8 +278,10 @@ class SummaryReportService {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text('Block-wise Performance',
-            style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+        pw.Text(
+          'Block-wise Performance',
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+        ),
         pw.SizedBox(height: 6),
         pw.Table(
           border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
@@ -240,26 +298,43 @@ class SummaryReportService {
             pw.TableRow(
               decoration: const pw.BoxDecoration(color: PdfColors.teal700),
               children: headers
-                  .map((h) => pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-                        child: pw.Text(h,
-                            style: pw.TextStyle(
-                                color: PdfColors.white,
-                                fontWeight: pw.FontWeight.bold,
-                                fontSize: 9)),
-                      ))
+                  .map(
+                    (h) => pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 5,
+                      ),
+                      child: pw.Text(
+                        h,
+                        style: pw.TextStyle(
+                          color: PdfColors.white,
+                          fontWeight: pw.FontWeight.bold,
+                          fontSize: 9,
+                        ),
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
             ...rows.asMap().entries.map((entry) {
               final isEven = entry.key.isEven;
               return pw.TableRow(
                 decoration: pw.BoxDecoration(
-                    color: isEven ? PdfColors.white : PdfColors.grey100),
+                  color: isEven ? PdfColors.white : PdfColors.grey100,
+                ),
                 children: entry.value
-                    .map((cell) => pw.Padding(
-                          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                          child: pw.Text(cell, style: const pw.TextStyle(fontSize: 9)),
-                        ))
+                    .map(
+                      (cell) => pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        child: pw.Text(
+                          cell,
+                          style: const pw.TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    )
                     .toList(),
               );
             }),
@@ -270,15 +345,19 @@ class SummaryReportService {
   }
 
   static pw.Widget _buildAccuracyChart(
-      List<int> blocks, Map<int, _BlockStat> stats) {
+    List<int> blocks,
+    Map<int, _BlockStat> stats,
+  ) {
     if (blocks.isEmpty) return pw.SizedBox();
     final maxH = 120.0;
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text('Accuracy per Block (%)',
-            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.Text(
+          'Accuracy per Block (%)',
+          style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+        ),
         pw.SizedBox(height: 6),
         pw.SizedBox(
           height: maxH + 30,
@@ -302,17 +381,20 @@ class SummaryReportService {
     );
   }
 
-  static pw.Widget _buildRtChart(
-      List<int> blocks, Map<int, _BlockStat> stats) {
+  static pw.Widget _buildRtChart(List<int> blocks, Map<int, _BlockStat> stats) {
     if (blocks.isEmpty) return pw.SizedBox();
-    final maxRt = blocks.map((b) => stats[b]!.meanRt + stats[b]!.semRt).fold(0.0, (a, b) => a > b ? a : b);
+    final maxRt = blocks
+        .map((b) => stats[b]!.meanRt + stats[b]!.semRt)
+        .fold(0.0, (a, b) => a > b ? a : b);
     final yMax = (maxRt * 1.2).clamp(200.0, 2000.0);
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text('Mean Reaction Time per Block (ms)',
-            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.Text(
+          'Mean Reaction Time per Block (ms)',
+          style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+        ),
         pw.SizedBox(height: 6),
         pw.SizedBox(
           height: 150,
@@ -373,10 +455,14 @@ class SummaryReportService {
       for (var i = 0; i < blocks.length - 1; i++) {
         final x1 = leftPad + i * xStep;
         final x2 = leftPad + (i + 1) * xStep;
-        final y1top = 10 + h * (1 - (values[i] + sems[i]).clamp(0, yMax) / yMax);
-        final y1bot = 10 + h * (1 - (values[i] - sems[i]).clamp(0, yMax) / yMax);
-        final y2top = 10 + h * (1 - (values[i + 1] + sems[i + 1]).clamp(0, yMax) / yMax);
-        final y2bot = 10 + h * (1 - (values[i + 1] - sems[i + 1]).clamp(0, yMax) / yMax);
+        final y1top =
+            10 + h * (1 - (values[i] + sems[i]).clamp(0, yMax) / yMax);
+        final y1bot =
+            10 + h * (1 - (values[i] - sems[i]).clamp(0, yMax) / yMax);
+        final y2top =
+            10 + h * (1 - (values[i + 1] + sems[i + 1]).clamp(0, yMax) / yMax);
+        final y2bot =
+            10 + h * (1 - (values[i + 1] - sems[i + 1]).clamp(0, yMax) / yMax);
         canvas.moveTo(x1, y1top);
         canvas.lineTo(x2, y2top);
         canvas.lineTo(x2, y2bot);

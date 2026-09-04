@@ -64,10 +64,17 @@ class NirsAcquisitionService extends ChangeNotifier {
       _streamName = selected.streamName;
       _channelNames = _parseChannelNames(selected);
 
-      debugPrint('[LSL-NIRS] Connected to: $_streamName '
-          '(${_channelCount}ch @ ${_nominalSampleRate}Hz)');
+      debugPrint(
+        '[LSL-NIRS] Connected to: $_streamName '
+        '(${_channelCount}ch @ ${_nominalSampleRate}Hz)',
+      );
 
-      final inlet = LSLInlet<double>(selected, maxBuffer: 60, chunkSize: 0, recover: true);
+      final inlet = LSLInlet<double>(
+        selected,
+        maxBuffer: 60,
+        chunkSize: 0,
+        recover: true,
+      );
       await inlet.create();
       _inlet = inlet;
       _running = true;
@@ -90,10 +97,18 @@ class NirsAcquisitionService extends ChangeNotifier {
     }.toList();
 
     if (config.nirsStreamName.isNotEmpty) {
-      final results = await _resolveByTypes(typesToTry, config.resolveTimeoutSeconds);
+      final results = await _resolveByTypes(
+        typesToTry,
+        config.resolveTimeoutSeconds,
+      );
       if (results.isNotEmpty) {
-        final filtered = results.where((s) =>
-            s.streamName.toLowerCase().contains(config.nirsStreamName.toLowerCase())).toList();
+        final filtered = results
+            .where(
+              (s) => s.streamName.toLowerCase().contains(
+                config.nirsStreamName.toLowerCase(),
+              ),
+            )
+            .toList();
         if (filtered.isNotEmpty) return filtered;
       }
     }
@@ -101,7 +116,10 @@ class NirsAcquisitionService extends ChangeNotifier {
     return _resolveByTypes(typesToTry, config.resolveTimeoutSeconds);
   }
 
-  Future<List<LSLStreamInfo>> _resolveByTypes(List<String> types, double timeout) async {
+  Future<List<LSLStreamInfo>> _resolveByTypes(
+    List<String> types,
+    double timeout,
+  ) async {
     for (final type in types) {
       final resolver = LSLStreamResolver(maxStreams: 10)..create();
       try {
@@ -113,13 +131,18 @@ class NirsAcquisitionService extends ChangeNotifier {
         resolver.destroy();
         if (results.isNotEmpty) return results;
       } catch (_) {
-        try { resolver.destroy(); } catch (_) {}
+        try {
+          resolver.destroy();
+        } catch (_) {}
       }
     }
     return [];
   }
 
-  LSLStreamInfo _selectStream(List<LSLStreamInfo> streams, String preferredName) {
+  LSLStreamInfo _selectStream(
+    List<LSLStreamInfo> streams,
+    String preferredName,
+  ) {
     if (preferredName.isNotEmpty) {
       final target = preferredName.toLowerCase();
       return streams.firstWhere(
@@ -131,8 +154,9 @@ class NirsAcquisitionService extends ChangeNotifier {
       );
     }
     return streams.firstWhere(
-      (s) => s.streamName.toLowerCase().contains('nirx') ||
-             s.streamName.toLowerCase().contains('nirs'),
+      (s) =>
+          s.streamName.toLowerCase().contains('nirx') ||
+          s.streamName.toLowerCase().contains('nirs'),
       orElse: () => streams.first,
     );
   }
@@ -159,12 +183,14 @@ class NirsAcquisitionService extends ChangeNotifier {
         final sample = await inlet.pullSample(timeout: 2.0);
         if (sample.data.isNotEmpty) {
           final channels = sample.data.toList();
-          _samples.add(NirsSample(
-            channels: channels,
-            channelNames: names,
-            sampleRate: sr,
-            timestamp: DateTime.now(),
-          ));
+          _samples.add(
+            NirsSample(
+              channels: channels,
+              channelNames: names,
+              sampleRate: sr,
+              timestamp: DateTime.now(),
+            ),
+          );
         }
       } catch (e) {
         if (_running) {
@@ -178,7 +204,9 @@ class NirsAcquisitionService extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _running = false;
-    try { _inlet?.destroy(); } catch (_) {}
+    try {
+      _inlet?.destroy();
+    } catch (_) {}
     _inlet = null;
     _channelNames = [];
     _channelCount = 0;

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../core/eeg/acquisition_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/widgets/connection_status_bar.dart';
-import '../../core/models/module_type.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/channel_config_service.dart';
 import '../../core/services/permission_service.dart';
@@ -69,11 +68,17 @@ class _AngelScreenState extends State<AngelScreen> {
   }
 
   void _startSession() async {
-    final hasStorage = await context.read<PermissionService>().requestManageExternalStorage(context);
+    final hasStorage = await context
+        .read<PermissionService>()
+        .requestManageExternalStorage(context);
     if (!hasStorage) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot start session: storage permission is required.')),
+          const SnackBar(
+            content: Text(
+              'Cannot start session: storage permission is required.',
+            ),
+          ),
         );
       }
       return;
@@ -169,21 +174,20 @@ class _AngelScreenState extends State<AngelScreen> {
         ),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20.0),
+            padding: EdgeInsets.all(
+              MediaQuery.sizeOf(context).width < 600 ? 12 : 20,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: ConnectionStatusBar(
-                        eegState: acq.currentState,
-                        deviceLabel: 'xAMP-L10',
-                        onDisconnectEeg: () => acq.disconnect(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final connection = ConnectionStatusBar(
+                      eegState: acq.currentState,
+                      deviceLabel: acq.connectedDeviceLabel,
+                      onDisconnectEeg: () => acq.disconnect(),
+                    );
+                    final viewerButton = ElevatedButton.icon(
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -205,8 +209,25 @@ class _AngelScreenState extends State<AngelScreen> {
                           side: BorderSide(color: lightTeal.withOpacity(0.3)),
                         ),
                       ),
-                    ),
-                  ],
+                    );
+                    if (constraints.maxWidth < 700) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          connection,
+                          const SizedBox(height: 8),
+                          viewerButton,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: connection),
+                        const SizedBox(width: 12),
+                        viewerButton,
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -252,7 +273,9 @@ class _AngelScreenState extends State<AngelScreen> {
                           ],
                           onChanged: (val) {
                             setState(() => _level = val!);
-                            context.read<SettingsService>().update((s) => s.angelLevel = val!);
+                            context.read<SettingsService>().update(
+                              (s) => s.angelLevel = val!,
+                            );
                           },
                         ),
                         const SizedBox(height: 16),
@@ -264,7 +287,10 @@ class _AngelScreenState extends State<AngelScreen> {
                               value: 'English',
                               child: Text('English'),
                             ),
-                            DropdownMenuItem(value: 'Hindi', child: Text('Hindi')),
+                            DropdownMenuItem(
+                              value: 'Hindi',
+                              child: Text('Hindi'),
+                            ),
                             DropdownMenuItem(
                               value: 'Kannada',
                               child: Text('Kannada'),
@@ -272,7 +298,9 @@ class _AngelScreenState extends State<AngelScreen> {
                           ],
                           onChanged: (val) {
                             setState(() => _language = val!);
-                            context.read<SettingsService>().update((s) => s.angelLanguage = val!);
+                            context.read<SettingsService>().update(
+                              (s) => s.angelLanguage = val!,
+                            );
                           },
                         ),
                       ],
@@ -290,17 +318,28 @@ class _AngelScreenState extends State<AngelScreen> {
                       label: 'Blocks Count',
                       value: _blocksCount,
                       items: const [
-                        DropdownMenuItem(value: 1, child: Text('1 Block (Quick Test)')),
-                        DropdownMenuItem(value: 2, child: Text('2 Blocks (Standard)')),
+                        DropdownMenuItem(
+                          value: 1,
+                          child: Text('1 Block (Quick Test)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 2,
+                          child: Text('2 Blocks (Standard)'),
+                        ),
                         DropdownMenuItem(value: 4, child: Text('4 Blocks')),
                         DropdownMenuItem(value: 8, child: Text('8 Blocks')),
                         DropdownMenuItem(value: 12, child: Text('12 Blocks')),
-                        DropdownMenuItem(value: 16, child: Text('16 Blocks (Full Run)')),
+                        DropdownMenuItem(
+                          value: 16,
+                          child: Text('16 Blocks (Full Run)'),
+                        ),
                         DropdownMenuItem(value: 20, child: Text('20 Blocks')),
                       ],
                       onChanged: (val) {
                         setState(() => _blocksCount = val!);
-                        context.read<SettingsService>().update((s) => s.angelBlocksCount = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelBlocksCount = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -319,7 +358,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       ],
                       onChanged: (val) {
                         setState(() => _trialsOption = val!);
-                        context.read<SettingsService>().update((s) => s.angelTrialsOption = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelTrialsOption = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -328,13 +369,18 @@ class _AngelScreenState extends State<AngelScreen> {
                       value: _practiceCount,
                       items: const [
                         DropdownMenuItem(value: 2, child: Text('2 Trials')),
-                        DropdownMenuItem(value: 4, child: Text('4 Trials (Standard)')),
+                        DropdownMenuItem(
+                          value: 4,
+                          child: Text('4 Trials (Standard)'),
+                        ),
                         DropdownMenuItem(value: 6, child: Text('6 Trials')),
                         DropdownMenuItem(value: 8, child: Text('8 Trials')),
                       ],
                       onChanged: (val) {
                         setState(() => _practiceCount = val!);
-                        context.read<SettingsService>().update((s) => s.angelPracticeCount = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelPracticeCount = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -357,7 +403,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       ],
                       onChanged: (val) {
                         setState(() => _categorySet = val!);
-                        context.read<SettingsService>().update((s) => s.angelCategorySet = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelCategorySet = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -375,7 +423,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       contentPadding: EdgeInsets.zero,
                       onChanged: (val) {
                         setState(() => _intermixLevelBlocks = val);
-                        context.read<SettingsService>().update((s) => s.angelIntermixLevelBlocks = val);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelIntermixLevelBlocks = val,
+                        );
                       },
                     ),
                   ],
@@ -402,7 +452,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       ],
                       onChanged: (val) {
                         setState(() => _cdSchedule = val!);
-                        context.read<SettingsService>().update((s) => s.angelCdSchedule = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelCdSchedule = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -421,7 +473,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       ],
                       onChanged: (val) {
                         setState(() => _toneOffsetMode = val!);
-                        context.read<SettingsService>().update((s) => s.angelToneOffsetMode = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelToneOffsetMode = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -440,7 +494,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       ],
                       onChanged: (val) {
                         setState(() => _tonePlaybackMode = val!);
-                        context.read<SettingsService>().update((s) => s.angelTonePlaybackMode = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelTonePlaybackMode = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -458,7 +514,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       contentPadding: EdgeInsets.zero,
                       onChanged: (val) {
                         setState(() => _level2Cd = val);
-                        context.read<SettingsService>().update((s) => s.angelLevel2Cd = val);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelLevel2Cd = val,
+                        );
                       },
                     ),
                   ],
@@ -472,11 +530,12 @@ class _AngelScreenState extends State<AngelScreen> {
                   children: [
                     SwitchListTile(
                       title: const Text(
-                        'Record EEG Data',
+                        'Record Connected Biopotentials',
                         style: TextStyle(color: Colors.white, fontSize: 14),
                       ),
                       subtitle: const Text(
-                        'Save synchronized EDF tags during task',
+                        'On: save enabled EEG/ECG/EMG/PPG/fNIRS streams. '
+                        'Off: run task-only and still save behavioral results.',
                         style: TextStyle(color: Colors.white54, fontSize: 12),
                       ),
                       value: _recordEeg,
@@ -484,7 +543,9 @@ class _AngelScreenState extends State<AngelScreen> {
                       contentPadding: EdgeInsets.zero,
                       onChanged: (val) {
                         setState(() => _recordEeg = val);
-                        context.read<SettingsService>().update((s) => s.angelRecordEeg = val);
+                        context.read<SettingsService>().update(
+                          (s) => s.angelRecordEeg = val,
+                        );
                       },
                     ),
                     SwitchListTile(

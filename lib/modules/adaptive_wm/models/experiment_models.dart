@@ -15,7 +15,7 @@ enum TrialPhase {
   encoding,
   maintenance,
   retrieval,
-  finished
+  finished,
 }
 
 enum MatchDecision {
@@ -45,7 +45,11 @@ class StimulusItem {
     required this.color,
   });
 
-  StimulusItem copyWith({Hemifield? hemifield, StimulusSlot? slot, Color? color}) {
+  StimulusItem copyWith({
+    Hemifield? hemifield,
+    StimulusSlot? slot,
+    Color? color,
+  }) {
     return StimulusItem(
       hemifield: hemifield ?? this.hemifield,
       slot: slot ?? this.slot,

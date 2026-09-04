@@ -6,9 +6,9 @@
   <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
 </p>
 
-**Version:** 1.0.0 · **Platform:** Android (Flutter)
+**Version:** 1.0.5 · **Platforms:** Android, macOS, and Windows (Flutter)
 
-**CCS Mobile Studio** is a unified Android application that consolidates five previously separate research tools — EEG/fNIRS recording, automated sleep staging, an ERP cognitive battery, an adaptive working-memory task, and a subjective sleepiness assessment — into a single, subject-session-aware app. It is built with **Flutter** for the interface and a native **Rust** core (via `dart:ffi`) for real-time signal processing, ONNX-based sleep-stage inference, and EDF file I/O, so every module shares one acquisition engine, one file-naming convention, and one connection-management layer.
+**CCS Mobile Studio** is a unified cross-platform application that consolidates five previously separate research tools — EEG/fNIRS recording, automated sleep staging, an ERP cognitive battery, an adaptive working-memory task, and a subjective sleepiness assessment — into a single, subject-session-aware app. It is built with **Flutter** for the interface and a native **Rust** core (via `dart:ffi`) for real-time signal processing, ONNX-based sleep-stage inference, and EDF file I/O, so every module shares one acquisition engine, one file-naming convention, and one connection-management layer.
 
 ---
 
@@ -24,7 +24,7 @@ The app talks to hardware over **Bluetooth LE** (EEG amplifier) and **WiFi via L
 
 ### 1. Standalone EEG / fNIRS Recorder
 The shared viewing-and-recording engine used by every other module, also available on its own as a general-purpose utility.
-* Live multi-channel EEG waveform viewer with autoscale/fixed gain, stacked or overlaid channel layout, and configurable notch/bandpass display filtering (raw, unfiltered data is still what gets written to disk).
+* Live multi-channel EEG waveform viewer with autoscale/fixed gain, signal-specific EEG/EOG/EMG display filters, and configurable channel-reference montages (raw, unfiltered data is still what gets written to disk).
 * Real-time signal-quality metrics: peak-to-peak amplitude, artifact ratio, sensor stability.
 * fNIRS viewer (HbO / HbR / HbT traces) for WiFi-connected NIRS devices such as NIRSport 2 / EpiDome.
 * Direct-to-EDF recording via the native Rust writer, with automatic segment rollover (`_part2`, `_part3`, …) across BLE reconnects.
@@ -99,7 +99,8 @@ assets/
 
 * [Flutter SDK](https://docs.flutter.dev/get-started/install) (Dart SDK `^3.11.5`)
 * [Rust toolchain](https://www.rust-lang.org/tools/install) (`cargo`)
-* Android SDK + NDK (the bundled `rust/build_android.sh` defaults to NDK `28.2.13676358`; override via `ANDROID_SDK_ROOT` / `NDK_HOME` / `ANDROID_API` env vars)
+* Android SDK + NDK for Android builds (the bundled `rust/build_android.sh` defaults to NDK `28.2.13676358`; override via `ANDROID_SDK_ROOT` / `NDK_HOME` / `ANDROID_API` env vars)
+* Xcode for macOS builds, or Visual Studio 2022 with Desktop development with C++ for Windows builds
 
 ## Building the Native Core
 
@@ -108,6 +109,31 @@ Compile the Rust library for all Android ABIs and drop the outputs into `android
 ```sh
 ./rust/build_android.sh
 ```
+
+Desktop builds compile and package the Rust core automatically. The macOS
+runner calls `rust/build_macos.sh` to create a universal Apple Silicon/Intel
+dynamic library; Windows builds the x64 DLL through CMake.
+
+## Replaying and Optimizing Sleep Scoring
+
+`tools/optimize_sleep_scoring.py` reads calibrated EDF data in bounded chunks,
+replays it as a causal stream, and compares the bundled models and EEG
+derivations against a scored JSON benchmark:
+
+```sh
+python3 tools/optimize_sleep_scoring.py optimize recording.edf scoring.json
+python3 tools/optimize_sleep_scoring.py replay recording.edf \
+  --model assets/models/tinysleepnet-supratak/model.onnx \
+  --derivation C3-M1
+```
+
+Install its Python dependencies with `numpy scipy scikit-learn pyedflib
+onnxruntime`. The optimizer uses a chronological 70/30 selection/validation
+split, keeps excluded/inconclusive labels in their original epoch positions,
+and writes the complete candidate metrics to
+`build/sleep_scoring_optimization.json`. For legacy xAMP recordings saved
+before the 100× front-end calibration fix, add `--signal-scale 0.01`; this
+cannot recover samples that were already clipped at the EDF physical limits.
 
 ## Running the App
 
@@ -121,6 +147,35 @@ flutter run
 ```sh
 flutter build apk --release
 ```
+
+## Building Desktop Releases
+
+Run the command on the matching host operating system:
+
+```sh
+# macOS (produces build/macos/Build/Products/Release/ccs_mobile_studio.app)
+flutter build macos --release
+
+# Windows (produces build/windows/x64/runner/Release/)
+flutter build windows --release
+```
+
+BLE, LSL, recording, sleep staging, audio stimulation, experiments, reports,
+and import/export are available on desktop. Bluetooth Classic profiles remain
+Android-only because the existing Classic plugin is Android-specific; the
+shipped device profiles use BLE or LSL and work across all three platforms.
+
+Choose the operator-visible save location under **Settings → Output & Study
+Flow → Output Folder**. Exports are organized below it as
+`<subject>/<session>/`. The same settings page controls whether ANGEL,
+Adaptive WM, and HeartSync save connected physiological streams. ANGEL and
+Adaptive WM can run task-only while continuing to save behavioral logs and
+reports; HeartSync still requires live PPG or ECG for cardiac timing even when
+continuous physiological saving is disabled.
+
+The `Desktop release builds` GitHub Actions workflow runs whenever the version
+in `pubspec.yaml` is changed on `main` (and can also be started manually). It
+publishes zipped macOS universal and Windows x64 builds as workflow artifacts.
 
 ---
 

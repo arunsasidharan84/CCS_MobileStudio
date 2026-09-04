@@ -15,6 +15,7 @@ class WaveformPainter extends CustomPainter {
     required this.durationSeconds,
     required this.autoscale,
     this.channelLabels,
+    this.channelScaleFactors,
   });
 
   final List<List<double>> channels;
@@ -26,6 +27,7 @@ class WaveformPainter extends CustomPainter {
   final int durationSeconds;
   final bool autoscale;
   final List<String>? channelLabels;
+  final List<double>? channelScaleFactors;
 
   static const colors = [
     Color(0xFF14B8A6), // Teal
@@ -38,11 +40,19 @@ class WaveformPainter extends CustomPainter {
     Color(0xFF06B6D4), // Cyan
   ];
 
+  static double canvasHeightForChannels({
+    required int channelCount,
+    required double availableHeight,
+    double minimumLaneHeight = 64.0,
+  }) {
+    return max(availableHeight, max(1, channelCount) * minimumLaneHeight);
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     // Draw background grid
     final grid = Paint()
-      ..color = const Color(0xFF334155).withOpacity(0.4)
+      ..color = const Color(0xFF334155).withValues(alpha: 0.4)
       ..strokeWidth = 1;
     for (var i = 1; i < 4; i++) {
       final y = size.height * i / 4;
@@ -75,7 +85,10 @@ class WaveformPainter extends CustomPainter {
       final mean = visible.reduce((a, b) => a + b) / visible.length;
 
       final double scaleFactor;
-      if (autoscale) {
+      if (channelScaleFactors != null &&
+          channel < channelScaleFactors!.length) {
+        scaleFactor = max(0.000001, channelScaleFactors![channel]);
+      } else if (autoscale) {
         scaleFactor = max(
           20.0,
           visible.map((v) => (v - mean).abs()).reduce(max),
@@ -91,7 +104,10 @@ class WaveformPainter extends CustomPainter {
         final x = i * size.width / max(1, points - 1);
         final y =
             (centerY -
-                    ((visible[i] - mean) / scaleFactor) * laneHeight * 0.42 * gain)
+                    ((visible[i] - mean) / scaleFactor) *
+                        laneHeight *
+                        0.42 *
+                        gain)
                 .clamp(0.0, size.height);
         i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
       }

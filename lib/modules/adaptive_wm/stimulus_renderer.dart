@@ -38,11 +38,7 @@ class _StimulusPainter extends CustomPainter {
   final TrialPlan? currentTrial;
   final Hemifield? cueHemifield;
 
-  _StimulusPainter({
-    required this.phase,
-    this.currentTrial,
-    this.cueHemifield,
-  });
+  _StimulusPainter({required this.phase, this.currentTrial, this.cueHemifield});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -124,16 +120,32 @@ class _StimulusPainter extends CustomPainter {
 
   void _drawFixation(Canvas canvas, _Geometry geometry) {
     final textSize = min(geometry.screenWidth, geometry.screenHeight) * 0.11;
-    _drawCenteredText(canvas, '+', geometry.fixationX, geometry.fixationY, textSize);
+    _drawCenteredText(
+      canvas,
+      '+',
+      geometry.fixationX,
+      geometry.fixationY,
+      textSize,
+    );
   }
 
   void _drawCue(Canvas canvas, _Geometry geometry) {
     final symbol = cueHemifield?.cueSymbol() ?? '';
     final textSize = min(geometry.screenWidth, geometry.screenHeight) * 0.16;
-    _drawCenteredText(canvas, symbol, geometry.fixationX, geometry.fixationY, textSize);
+    _drawCenteredText(
+      canvas,
+      symbol,
+      geometry.fixationX,
+      geometry.fixationY,
+      textSize,
+    );
   }
 
-  void _drawStimuli(Canvas canvas, List<StimulusItem> items, _Geometry geometry) {
+  void _drawStimuli(
+    Canvas canvas,
+    List<StimulusItem> items,
+    _Geometry geometry,
+  ) {
     final borderPaint = Paint()
       ..color = const Color.fromARGB(190, 0, 0, 0)
       ..style = PaintingStyle.stroke
@@ -163,12 +175,24 @@ class _StimulusPainter extends CustomPainter {
     final squareCenterX = centerX + item.slot.xFraction * horizontalRadius;
     final squareCenterY = centerY + item.slot.yFraction * verticalRadius;
 
-    final left = (squareCenterX - halfSide).clamp(box.left, box.right - geometry.squareSide);
-    final top = (squareCenterY - halfSide).clamp(box.top, box.bottom - geometry.squareSide);
+    final left = (squareCenterX - halfSide).clamp(
+      box.left,
+      box.right - geometry.squareSide,
+    );
+    final top = (squareCenterY - halfSide).clamp(
+      box.top,
+      box.bottom - geometry.squareSide,
+    );
     return Rect.fromLTWH(left, top, geometry.squareSide, geometry.squareSide);
   }
 
-  void _drawCenteredText(Canvas canvas, String text, double centerX, double centerY, double fontSize) {
+  void _drawCenteredText(
+    Canvas canvas,
+    String text,
+    double centerX,
+    double centerY,
+    double fontSize,
+  ) {
     final textPainter = TextPainter(
       text: TextSpan(
         text: text,
@@ -177,7 +201,10 @@ class _StimulusPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
     textPainter.layout();
-    final offset = Offset(centerX - textPainter.width * 0.5, centerY - textPainter.height * 0.5);
+    final offset = Offset(
+      centerX - textPainter.width * 0.5,
+      centerY - textPainter.height * 0.5,
+    );
     textPainter.paint(canvas, offset);
   }
 

@@ -74,11 +74,17 @@ class LslEegAcquisitionService extends ChangeNotifier {
       _nominalSampleRate = selected.sampleRate;
       _channelNames = List.generate(_channelCount, (i) => 'EEG ${i + 1}');
 
-      debugPrint('[LSL-EEG] Connecting to: ${selected.streamName} '
-          '(${_channelCount}ch @ ${_nominalSampleRate}Hz)');
+      debugPrint(
+        '[LSL-EEG] Connecting to: ${selected.streamName} '
+        '(${_channelCount}ch @ ${_nominalSampleRate}Hz)',
+      );
 
-      final inlet =
-          LSLInlet<double>(selected, maxBuffer: 30, chunkSize: 0, recover: true);
+      final inlet = LSLInlet<double>(
+        selected,
+        maxBuffer: 30,
+        chunkSize: 0,
+        recover: true,
+      );
       await inlet.create();
       _inlet = inlet;
       _running = true;
@@ -96,10 +102,7 @@ class LslEegAcquisitionService extends ChangeNotifier {
   }
 
   Future<List<LSLStreamInfo>> _resolveStreams(LslConfig config) async {
-    final typesToTry = <String>{
-      config.eegStreamType,
-      'EEG',
-    }.toList();
+    final typesToTry = <String>{config.eegStreamType, 'EEG'}.toList();
 
     if (config.eegStreamName.isNotEmpty) {
       final resolver = LSLStreamResolver(maxStreams: 10)..create();
@@ -111,8 +114,11 @@ class LslEegAcquisitionService extends ChangeNotifier {
         );
         resolver.destroy();
         final filtered = byName
-            .where((s) => typesToTry
-                .any((t) => s.streamType.value.toUpperCase() == t.toUpperCase()))
+            .where(
+              (s) => typesToTry.any(
+                (t) => s.streamType.value.toUpperCase() == t.toUpperCase(),
+              ),
+            )
             .toList();
         if (filtered.isNotEmpty) return filtered;
       } catch (_) {
@@ -137,7 +143,10 @@ class LslEegAcquisitionService extends ChangeNotifier {
     return [];
   }
 
-  LSLStreamInfo _selectStream(List<LSLStreamInfo> streams, String preferredName) {
+  LSLStreamInfo _selectStream(
+    List<LSLStreamInfo> streams,
+    String preferredName,
+  ) {
     if (preferredName.isNotEmpty) {
       final target = preferredName.toLowerCase();
       return streams.firstWhere(
@@ -161,16 +170,20 @@ class LslEegAcquisitionService extends ChangeNotifier {
         final sample = await inlet.pullSample(timeout: 1.0);
         if (sample.data.isNotEmpty) {
           final channels = sample.data.toList();
-          _samples.add(EegSample(
-            channels: channels,
-            sampleRate: _nominalSampleRate,
-            timestamp: DateTime.now(),
-            source: 'LSL-EEG',
-          ));
+          _samples.add(
+            EegSample(
+              channels: channels,
+              sampleRate: _nominalSampleRate,
+              timestamp: DateTime.now(),
+              source: 'LSL-EEG',
+            ),
+          );
         }
       } catch (e) {
         if (_running) {
-          debugPrint('[LSL-EEG] Sample pull error: $e — starting LSL reconnect');
+          debugPrint(
+            '[LSL-EEG] Sample pull error: $e — starting LSL reconnect',
+          );
           try {
             _inlet?.destroy();
           } catch (_) {}
@@ -189,7 +202,8 @@ class LslEegAcquisitionService extends ChangeNotifier {
     _stopLslReconnectTimer();
     _reconnectTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       _reconnectAttempts++;
-      if (reconnectMaxAttempts > 0 && _reconnectAttempts > reconnectMaxAttempts) {
+      if (reconnectMaxAttempts > 0 &&
+          _reconnectAttempts > reconnectMaxAttempts) {
         _stopLslReconnectTimer();
         if (!_maxRetriesReachedController.isClosed) {
           _maxRetriesReachedController.add(null);

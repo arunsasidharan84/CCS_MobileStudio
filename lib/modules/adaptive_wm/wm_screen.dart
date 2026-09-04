@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../core/eeg/acquisition_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/widgets/connection_status_bar.dart';
-import '../../core/models/module_type.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/channel_config_service.dart';
 import '../../core/services/permission_service.dart';
@@ -61,11 +60,17 @@ class _WmScreenState extends State<WmScreen> {
   }
 
   void _startSession() async {
-    final hasStorage = await context.read<PermissionService>().requestManageExternalStorage(context);
+    final hasStorage = await context
+        .read<PermissionService>()
+        .requestManageExternalStorage(context);
     if (!hasStorage) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot start session: storage permission is required.')),
+          const SnackBar(
+            content: Text(
+              'Cannot start session: storage permission is required.',
+            ),
+          ),
         );
       }
       return;
@@ -152,21 +157,20 @@ class _WmScreenState extends State<WmScreen> {
         ),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20.0),
+            padding: EdgeInsets.all(
+              MediaQuery.sizeOf(context).width < 600 ? 12 : 20,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: ConnectionStatusBar(
-                        eegState: acq.currentState,
-                        deviceLabel: 'xAMP-L10',
-                        onDisconnectEeg: () => acq.disconnect(),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final connection = ConnectionStatusBar(
+                      eegState: acq.currentState,
+                      deviceLabel: acq.connectedDeviceLabel,
+                      onDisconnectEeg: () => acq.disconnect(),
+                    );
+                    final viewerButton = ElevatedButton.icon(
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -188,8 +192,25 @@ class _WmScreenState extends State<WmScreen> {
                           side: BorderSide(color: lightTeal.withOpacity(0.3)),
                         ),
                       ),
-                    ),
-                  ],
+                    );
+                    if (constraints.maxWidth < 700) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          connection,
+                          const SizedBox(height: 8),
+                          viewerButton,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: connection),
+                        const SizedBox(width: 12),
+                        viewerButton,
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -223,7 +244,9 @@ class _WmScreenState extends State<WmScreen> {
                       suffix: 'trials',
                       onChanged: (val) {
                         setState(() => _totalTrials = val!);
-                        context.read<SettingsService>().update((s) => s.wmTotalTrials = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmTotalTrials = val!,
+                        );
                       },
                     ),
                   ],
@@ -242,7 +265,9 @@ class _WmScreenState extends State<WmScreen> {
                       suffix: 'ms',
                       onChanged: (val) {
                         setState(() => _fixationDuration = val!);
-                        context.read<SettingsService>().update((s) => s.wmFixationDurationMs = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmFixationDurationMs = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -253,7 +278,9 @@ class _WmScreenState extends State<WmScreen> {
                       suffix: 'ms',
                       onChanged: (val) {
                         setState(() => _cueDuration = val!);
-                        context.read<SettingsService>().update((s) => s.wmCueDurationMs = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmCueDurationMs = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -264,7 +291,9 @@ class _WmScreenState extends State<WmScreen> {
                       suffix: 'ms',
                       onChanged: (val) {
                         setState(() => _encodingDuration = val!);
-                        context.read<SettingsService>().update((s) => s.wmEncodingDurationMs = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmEncodingDurationMs = val!,
+                        );
                       },
                     ),
                     const SizedBox(height: 16),
@@ -275,7 +304,9 @@ class _WmScreenState extends State<WmScreen> {
                       suffix: 'ms',
                       onChanged: (val) {
                         setState(() => _delayDuration = val!);
-                        context.read<SettingsService>().update((s) => s.wmDelayDurationMs = val!);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmDelayDurationMs = val!,
+                        );
                       },
                     ),
                   ],
@@ -289,11 +320,12 @@ class _WmScreenState extends State<WmScreen> {
                   children: [
                     SwitchListTile(
                       title: const Text(
-                        'Record Synchronized EEG (EDF)',
+                        'Record Connected Biopotentials',
                         style: TextStyle(color: Colors.white, fontSize: 14),
                       ),
                       subtitle: const Text(
-                        'Logs LSL markers and continuous EEG waveforms',
+                        'On: save enabled EEG/ECG/EMG/PPG/fNIRS streams. '
+                        'Off: run task-only and still save behavioral results.',
                         style: TextStyle(color: Colors.white54, fontSize: 12),
                       ),
                       value: _recordEeg,
@@ -301,7 +333,9 @@ class _WmScreenState extends State<WmScreen> {
                       contentPadding: EdgeInsets.zero,
                       onChanged: (val) {
                         setState(() => _recordEeg = val);
-                        context.read<SettingsService>().update((s) => s.wmRecordEeg = val);
+                        context.read<SettingsService>().update(
+                          (s) => s.wmRecordEeg = val,
+                        );
                       },
                     ),
                   ],

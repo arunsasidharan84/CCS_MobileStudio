@@ -26,7 +26,8 @@ class LslConfig {
       eegStreamType: eegStreamType ?? this.eegStreamType,
       nirsStreamName: nirsStreamName ?? this.nirsStreamName,
       nirsStreamType: nirsStreamType ?? this.nirsStreamType,
-      resolveTimeoutSeconds: resolveTimeoutSeconds ?? this.resolveTimeoutSeconds,
+      resolveTimeoutSeconds:
+          resolveTimeoutSeconds ?? this.resolveTimeoutSeconds,
     );
   }
 
@@ -43,6 +44,7 @@ class LslConfig {
     eegStreamType: (json['eegStreamType'] as String?) ?? 'EEG',
     nirsStreamName: (json['nirsStreamName'] as String?) ?? '',
     nirsStreamType: (json['nirsStreamType'] as String?) ?? 'NIRS',
-    resolveTimeoutSeconds: (json['resolveTimeoutSeconds'] as num?)?.toDouble() ?? 5.0,
+    resolveTimeoutSeconds:
+        (json['resolveTimeoutSeconds'] as num?)?.toDouble() ?? 5.0,
   );
 }

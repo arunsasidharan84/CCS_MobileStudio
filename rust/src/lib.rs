@@ -78,7 +78,7 @@ pub struct SleepScorer {
 pub struct EdfWriter {
     file: File,
     channel_count: usize,
-    sample_rate: usize,
+    samples_per_record: usize,
     record_samples: Vec<Vec<i16>>,
     records: u64,
     phys_min: Vec<f64>,
@@ -249,6 +249,7 @@ pub unsafe extern "C" fn tn_edf_open(
         subject,
         channel_count,
         sample_rate,
+        1.0,
         -1,
         None,
         None,
@@ -264,7 +265,7 @@ pub unsafe extern "C" fn tn_edf_open(
     Box::into_raw(Box::new(EdfWriter {
         file,
         channel_count,
-        sample_rate,
+        samples_per_record: sample_rate,
         record_samples: vec![Vec::with_capacity(sample_rate); channel_count],
         records: 0,
         phys_min,
@@ -290,11 +291,9 @@ pub unsafe extern "C" fn tn_edf_push_sample(
         let span = (phys_max - phys_min).abs().max(1.0);
         let clipped = value.clamp(phys_min, phys_max);
         let scaled = ((clipped - phys_min) * 65535.0 / span - 32768.0).round();
-        writer
-            .record_samples[channel]
-            .push(scaled.clamp(-32768.0, 32767.0) as i16);
+        writer.record_samples[channel].push(scaled.clamp(-32768.0, 32767.0) as i16);
     }
-    if writer.record_samples[0].len() >= writer.sample_rate {
+    if writer.record_samples[0].len() >= writer.samples_per_record {
         write_edf_record(writer).is_ok()
     } else {
         true
@@ -310,7 +309,7 @@ pub unsafe extern "C" fn tn_edf_close(writer: *mut EdfWriter) -> bool {
     if !writer.record_samples[0].is_empty() {
         for channel in 0..writer.channel_count {
             let last = writer.record_samples[channel].last().copied().unwrap_or(0);
-            while writer.record_samples[channel].len() < writer.sample_rate {
+            while writer.record_samples[channel].len() < writer.samples_per_record {
                 writer.record_samples[channel].push(last);
             }
         }
@@ -376,13 +375,18 @@ fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<Sle
         &mut state.high_prev_y,
     );
     let model_epoch = prepare_model_epoch(&filtered, state.sample_rate);
-    
+
     let steps_in_30s = (30.0 / (state.step_samples as f64 / state.sample_rate)).round() as usize;
     let required_len = 19 * steps_in_30s + 1;
-    
+
     state.feature_history.push(model_epoch);
     while state.feature_history.len() < required_len {
-        state.feature_history.insert(0, vec![0.0f32; 3000]);
+        // A flat zero epoch is far outside the model's training distribution
+        // and previously corrupted the first 19 predictions of every session.
+        // Repeating the earliest real epoch preserves causal operation without
+        // inventing future context.
+        let earliest = state.feature_history[0].clone();
+        state.feature_history.insert(0, earliest);
     }
     if state.feature_history.len() > required_len {
         let excess = state.feature_history.len() - required_len;
@@ -398,8 +402,8 @@ fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<Sle
     let scorer = state.scorer.as_ref()?;
     let (stage, confidence, probs) = scorer.score_sequence(&flat).ok()?;
     state.filtered_epoch = filtered.clone();
-    let artifact_ratio = centered.iter().filter(|v| v.abs() > 250.0).count() as f64
-        / centered.len().max(1) as f64;
+    let artifact_ratio =
+        centered.iter().filter(|v| v.abs() > 250.0).count() as f64 / centered.len().max(1) as f64;
     let score = SleepScore {
         ready: true,
         stage,
@@ -436,8 +440,8 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
         &mut state.high_prev_y,
     );
     state.filtered_epoch = filtered.clone();
-    let artifact_ratio = centered.iter().filter(|v| v.abs() > 250.0).count() as f64
-        / centered.len().max(1) as f64;
+    let artifact_ratio =
+        centered.iter().filter(|v| v.abs() > 250.0).count() as f64 / centered.len().max(1) as f64;
 
     let delta = bandpower(&filtered, state.sample_rate, 0.5, 4.0);
     let theta = bandpower(&filtered, state.sample_rate, 4.0, 8.0);
@@ -486,7 +490,14 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
     ];
     let sum_probs = raw_probs.iter().sum::<f64>() + 1e-9;
 
-    let confidence = stage_confidence(stage, delta_ratio, theta_ratio, alpha_ratio, beta_ratio, artifact_ratio);
+    let confidence = stage_confidence(
+        stage,
+        delta_ratio,
+        theta_ratio,
+        alpha_ratio,
+        beta_ratio,
+        artifact_ratio,
+    );
     let score = SleepScore {
         ready: true,
         stage,
@@ -685,7 +696,14 @@ fn bandpower(samples: &[f64], sf: f64, low: f64, high: f64) -> f64 {
     power / (end_bin.saturating_sub(start_bin) + 1).max(1) as f64
 }
 
-fn stage_confidence(stage: i32, delta: f64, theta: f64, alpha: f64, beta: f64, artifact: f64) -> f64 {
+fn stage_confidence(
+    stage: i32,
+    delta: f64,
+    theta: f64,
+    alpha: f64,
+    beta: f64,
+    artifact: f64,
+) -> f64 {
     let raw = match stage {
         STAGE_WAKE => alpha.max(beta),
         STAGE_N1 => theta,
@@ -705,6 +723,12 @@ fn write_edf_record(writer: &mut EdfWriter) -> std::io::Result<()> {
         writer.record_samples[channel].clear();
     }
     writer.records += 1;
+    let after_record = writer.file.stream_position()?;
+    let count = ascii_pad(&writer.records.to_string(), 8);
+    writer.file.seek(SeekFrom::Start(236))?;
+    writer.file.write_all(&count)?;
+    writer.file.seek(SeekFrom::Start(after_record))?;
+    writer.file.flush()?;
     Ok(())
 }
 
@@ -712,6 +736,7 @@ fn edf_header(
     subject: &str,
     channel_count: usize,
     sample_rate: usize,
+    record_duration: f64,
     records: i64,
     names: Option<Vec<String>>,
     phys_dims: Option<Vec<String>>,
@@ -734,7 +759,7 @@ fn edf_header(
     header.extend(ascii_pad(&header_bytes.to_string(), 8));
     header.extend(ascii_pad("", 44));
     header.extend(ascii_pad(&records.to_string(), 8));
-    header.extend(ascii_pad("1", 8));
+    header.extend(ascii_pad(&format_edf_physical(record_duration), 8));
     header.extend(ascii_pad(&channel_count.to_string(), 4));
 
     for channel in 0..channel_count {
@@ -833,9 +858,67 @@ pub unsafe extern "C" fn tn_edf_open_with_labels_and_ranges(
     channel_count: usize,
     sample_rate: usize,
 ) -> *mut EdfWriter {
-    if path.is_null() || channel_count == 0 || sample_rate == 0 {
+    edf_open_with_labels_and_ranges_impl(
+        path,
+        subject,
+        channel_names,
+        phys_dims,
+        prefilters,
+        transducers,
+        phys_min,
+        phys_max,
+        channel_count,
+        sample_rate as f64,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tn_edf_open_with_labels_and_ranges_f64(
+    path: *const c_char,
+    subject: *const c_char,
+    channel_names: *const *const c_char,
+    phys_dims: *const *const c_char,
+    prefilters: *const *const c_char,
+    transducers: *const *const c_char,
+    phys_min: *const f64,
+    phys_max: *const f64,
+    channel_count: usize,
+    sample_rate: f64,
+) -> *mut EdfWriter {
+    edf_open_with_labels_and_ranges_impl(
+        path,
+        subject,
+        channel_names,
+        phys_dims,
+        prefilters,
+        transducers,
+        phys_min,
+        phys_max,
+        channel_count,
+        sample_rate,
+    )
+}
+
+unsafe fn edf_open_with_labels_and_ranges_impl(
+    path: *const c_char,
+    subject: *const c_char,
+    channel_names: *const *const c_char,
+    phys_dims: *const *const c_char,
+    prefilters: *const *const c_char,
+    transducers: *const *const c_char,
+    phys_min: *const f64,
+    phys_max: *const f64,
+    channel_count: usize,
+    sample_rate: f64,
+) -> *mut EdfWriter {
+    if path.is_null() || channel_count == 0 || !sample_rate.is_finite() || sample_rate <= 0.0 {
         return ptr::null_mut();
     }
+    let (samples_per_record, record_duration) = match edf_record_layout(sample_rate) {
+        Some(layout) => layout,
+        None => return ptr::null_mut(),
+    };
+
     let path = match CStr::from_ptr(path).to_str() {
         Ok(path) => path,
         Err(_) => return ptr::null_mut(),
@@ -893,7 +976,8 @@ pub unsafe extern "C" fn tn_edf_open_with_labels_and_ranges(
     let header = edf_header(
         subject,
         channel_count,
-        sample_rate,
+        samples_per_record,
+        record_duration,
         -1,
         Some(names_vec),
         Some(dims_vec),
@@ -909,12 +993,25 @@ pub unsafe extern "C" fn tn_edf_open_with_labels_and_ranges(
     Box::into_raw(Box::new(EdfWriter {
         file,
         channel_count,
-        sample_rate,
+        samples_per_record,
         records: 0,
-        record_samples: vec![Vec::with_capacity(sample_rate); channel_count],
+        record_samples: vec![Vec::with_capacity(samples_per_record); channel_count],
         phys_min: phys_min_vec,
         phys_max: phys_max_vec,
     }))
+}
+
+fn edf_record_layout(sample_rate: f64) -> Option<(usize, f64)> {
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
+        return None;
+    }
+    let duration = (1..=100)
+        .find(|seconds| {
+            let count = sample_rate * *seconds as f64;
+            (count - count.round()).abs() < 0.000001
+        })
+        .unwrap_or(1) as f64;
+    Some(((sample_rate * duration).round().max(1.0) as usize, duration))
 }
 
 fn format_edf_physical(value: f64) -> String {
@@ -936,6 +1033,13 @@ fn ascii_pad(value: &str, len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn represents_fractional_edf_sample_rates_exactly() {
+        assert_eq!(edf_record_layout(250.0), Some((250, 1.0)));
+        assert_eq!(edf_record_layout(62.5), Some((125, 2.0)));
+        assert_eq!(edf_record_layout(10.0), Some((10, 1.0)));
+    }
 
     #[test]
     fn scores_after_one_epoch() {

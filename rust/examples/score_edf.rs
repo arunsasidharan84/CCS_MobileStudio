@@ -36,9 +36,7 @@ fn main() {
         let start = samples_offset + signal * 8;
         samples_per_record.push(field(&bytes[start..start + 8]).parse::<usize>().unwrap());
     }
-    let label = field(
-        &bytes[labels_offset + channel * 16..labels_offset + (channel + 1) * 16],
-    );
+    let label = field(&bytes[labels_offset + channel * 16..labels_offset + (channel + 1) * 16]);
     let parse_calibration = |offset: usize, signal: usize| -> f64 {
         let start = offset + signal * 8;
         field(&bytes[start..start + 8]).parse().unwrap()

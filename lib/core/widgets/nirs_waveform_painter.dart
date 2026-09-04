@@ -19,9 +19,10 @@ class NirsWaveformPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final visibleIndices = List.generate(channelNames.length, (i) => i)
-        .where((i) => !hiddenChannels.contains(i))
-        .toList();
+    final visibleIndices = List.generate(
+      channelNames.length,
+      (i) => i,
+    ).where((i) => !hiddenChannels.contains(i)).toList();
     if (visibleIndices.isEmpty) return;
 
     final n = visibleIndices.length;
@@ -66,8 +67,8 @@ class NirsWaveformPainter extends CustomPainter {
       final color = name.contains('HbT')
           ? _hbtColor
           : name.contains('HbR')
-              ? _hbrColor
-              : _hboColor;
+          ? _hbrColor
+          : _hboColor;
 
       final paint = Paint()
         ..color = color
@@ -111,10 +112,7 @@ class NirsWaveformPainter extends CustomPainter {
       final valTp = TextPainter(
         text: TextSpan(
           text: latestVal.toStringAsFixed(2),
-          style: TextStyle(
-            color: color.withOpacity(0.7),
-            fontSize: 10,
-          ),
+          style: TextStyle(color: color.withOpacity(0.7), fontSize: 10),
         ),
         textDirection: TextDirection.ltr,
       )..layout();

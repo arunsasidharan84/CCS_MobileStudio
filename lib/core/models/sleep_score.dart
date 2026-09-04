@@ -27,6 +27,8 @@ enum SleepStage {
 }
 
 class SleepScoreResult {
+  static const double maximumReliableArtifactRatio = 0.20;
+
   const SleepScoreResult({
     required this.stage,
     required this.confidence,
@@ -56,10 +58,13 @@ class SleepScoreResult {
   final double probN2;
   final double probN3;
   final double probREM;
+  bool get isReliable => artifactRatio <= maximumReliableArtifactRatio;
 
   Map<String, dynamic> toJson() => {
     'epochIndex': epochIndex,
-    'stage': stage.label,
+    'stage': isReliable ? stage.label : 'Unscored',
+    'modelStage': stage.label,
+    'scoringValid': isReliable,
     'confidence': confidence,
     'deltaPower': deltaPower,
     'thetaPower': thetaPower,

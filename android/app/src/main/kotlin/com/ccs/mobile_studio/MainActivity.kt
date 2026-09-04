@@ -9,6 +9,7 @@ import android.media.SoundPool
 import android.media.ToneGenerator
 import android.net.Uri
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
@@ -76,6 +77,38 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("WINDOW_ERROR", e.message, null)
+                    }
+                }
+                "startRecordingService" -> {
+                    try {
+                        val serviceIntent = Intent(this, RecordingForegroundService::class.java).apply {
+                            action = RecordingForegroundService.ACTION_START
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Failed to start recording service: ${e.message}")
+                        result.error("FOREGROUND_SERVICE_ERROR", e.message, null)
+                    }
+                }
+                "stopRecordingService" -> {
+                    try {
+                        // Plain startService (not startForegroundService): the service is
+                        // already in the foreground at this point, and this path never
+                        // calls startForeground() itself, so it must not be launched via
+                        // the API that requires startForeground() within a few seconds.
+                        val serviceIntent = Intent(this, RecordingForegroundService::class.java).apply {
+                            action = RecordingForegroundService.ACTION_STOP
+                        }
+                        startService(serviceIntent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Failed to stop recording service: ${e.message}")
+                        result.error("FOREGROUND_SERVICE_ERROR", e.message, null)
                     }
                 }
                 "playTone" -> {

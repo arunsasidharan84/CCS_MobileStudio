@@ -33,8 +33,9 @@ class BleCoordinator extends ChangeNotifier {
       return true;
     }
     debugPrint(
-        '[BleCoordinator] Lock denied for ${module.displayName}: '
-        '${_owner!.displayName} is currently streaming.');
+      '[BleCoordinator] Lock denied for ${module.displayName}: '
+      '${_owner!.displayName} is currently streaming.',
+    );
     return false;
   }
 
@@ -52,7 +53,9 @@ class BleCoordinator extends ChangeNotifier {
   /// Use only in emergency / settings reset scenarios.
   void forceRelease() {
     if (_owner != null) {
-      debugPrint('[BleCoordinator] Force-releasing lock from ${_owner!.displayName}.');
+      debugPrint(
+        '[BleCoordinator] Force-releasing lock from ${_owner!.displayName}.',
+      );
       _owner = null;
       notifyListeners();
     }

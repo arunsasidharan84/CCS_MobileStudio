@@ -178,8 +178,11 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
 
         final channelCount = widget.acquisitionService.channelCount;
         final sampleRate = widget.acquisitionService.sampleRate.toInt();
-        final labels =
-            widget.channelLabels ?? widget.acquisitionService.channelLabels;
+        final labels = widget.acquisitionService.recordingChannelLabels(
+          widget.channelLabels,
+        );
+        final enabledChannels = widget.acquisitionService
+            .recordingEnabledChannels(widget.enabledChannels);
 
         await widget.sessionManager.startSession(
           subject: widget.participant,
@@ -187,7 +190,7 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
           channelCount: channelCount,
           sampleRate: sampleRate,
           channelLabels: labels,
-          enabledChannels: widget.enabledChannels,
+          enabledChannels: enabledChannels,
         );
       }
 
@@ -324,37 +327,37 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
     String? pdfPath,
     String? sessionStem,
   }) async {
-    if (Platform.isAndroid) {
-      if (await Permission.manageExternalStorage.request().isGranted ||
-          await Permission.storage.request().isGranted) {
-        try {
-          final stem =
-              sessionStem ??
-              FileNamingService.stem(
-                widget.participant,
-                ModuleType.angel,
-                _erpEngine.sessionStartTime,
-              );
+    final canExport =
+        !Platform.isAndroid ||
+        await Permission.manageExternalStorage.request().isGranted ||
+        await Permission.storage.request().isGranted;
+    if (!canExport) return;
+    try {
+      final stem =
+          sessionStem ??
+          FileNamingService.stem(
+            widget.participant,
+            ModuleType.angel,
+            _erpEngine.sessionStartTime,
+          );
 
-          if (csvPath != null) {
-            await FileNamingService.exportToDownloads(
-              csvPath,
-              subject: widget.participant,
-              sessionStem: stem,
-            );
-          }
-
-          if (pdfPath != null) {
-            await FileNamingService.exportToDownloads(
-              pdfPath,
-              subject: widget.participant,
-              sessionStem: stem,
-            );
-          }
-        } catch (e) {
-          debugPrint('[Save to Public Error] $e');
-        }
+      if (csvPath != null) {
+        await FileNamingService.exportToDownloads(
+          csvPath,
+          subject: widget.participant,
+          sessionStem: stem,
+        );
       }
+
+      if (pdfPath != null) {
+        await FileNamingService.exportToDownloads(
+          pdfPath,
+          subject: widget.participant,
+          sessionStem: stem,
+        );
+      }
+    } catch (e) {
+      debugPrint('[Save to output folder error] $e');
     }
   }
 
@@ -655,7 +658,9 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
             ),
           Center(
             child: Container(
-              width: 500,
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 500),
+              margin: const EdgeInsets.symmetric(horizontal: 16),
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.85),

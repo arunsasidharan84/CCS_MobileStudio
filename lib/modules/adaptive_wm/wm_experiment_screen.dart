@@ -39,6 +39,7 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
   VoidCallback? _runnerSub;
   StreamSubscription<AcquisitionState>? _acqStateSub;
   bool _isFinishing = false;
+  Future<void>? _finishFuture;
   bool _waitingForReconnect = false;
 
   @override
@@ -69,7 +70,7 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
       if (widget.module.runner.currentPhase == TrialPhase.finished &&
           !_isFinishing) {
         Future.delayed(const Duration(milliseconds: 800), () {
-          if (mounted && !_isFinishing) _finishExperiment();
+          if (mounted) _finishExperiment(navigateHome: false);
         });
       }
     };
@@ -158,20 +159,37 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
   }
 
   void _exitExperiment() async {
-    await _finishExperiment();
+    await _finishExperiment(navigateHome: true);
   }
 
-  Future<void> _finishExperiment() async {
-    if (_isFinishing) return;
-    _isFinishing = true;
-    await widget.module.stopSession(widget.subjectId);
+  Future<void> _finishExperiment({required bool navigateHome}) async {
+    _finishFuture ??= _finalizeExperiment();
+    await _finishFuture;
 
-    if (mounted) {
+    if (navigateHome && mounted) {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
         (route) => false,
       );
     }
+  }
+
+  Future<void> _finalizeExperiment() async {
+    if (mounted) {
+      setState(() {
+        _isFinishing = true;
+        _waitingForReconnect = false;
+      });
+    } else {
+      _isFinishing = true;
+    }
+
+    try {
+      await widget.module.stopSession(widget.subjectId);
+    } catch (e) {
+      debugPrint('[WmExperimentScreen] Error while finishing experiment: $e');
+    }
+    if (mounted) setState(() => _isFinishing = false);
   }
 
   void _handleKeyboardKey(KeyEvent event) {
@@ -308,10 +326,10 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
                         channelCount: widget.acquisitionService.channelCount,
                         sampleRate: widget.acquisitionService.sampleRate
                             .toInt(),
-                        channelLabels:
-                            widget.channelLabels ??
-                            widget.acquisitionService.channelLabels,
-                        enabledChannels: widget.enabledChannels,
+                        channelLabels: widget.acquisitionService
+                            .recordingChannelLabels(widget.channelLabels),
+                        enabledChannels: widget.acquisitionService
+                            .recordingEnabledChannels(widget.enabledChannels),
                       );
                     },
                     icon: const Icon(
@@ -367,7 +385,7 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
                 const SizedBox(height: 12),
                 Text(
                   "Completed ${runner.records.length} trials • Overall Accuracy: ${(runner.overallAccuracy * 100).toStringAsFixed(1)}%\n"
-                  "Synchronized EEG (EDF), CSV timestamps, and PDF report saved to Downloads.",
+                  "Session data saved to the output folder configured in Settings.",
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 16,
@@ -378,7 +396,7 @@ class _WmExperimentScreenState extends State<WmExperimentScreen> {
                 const SizedBox(height: 36),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    await _finishExperiment();
+                    await _finishExperiment(navigateHome: true);
                   },
                   icon: const Icon(Icons.home, color: Colors.white),
                   label: const Text(

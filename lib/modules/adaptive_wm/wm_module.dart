@@ -74,56 +74,57 @@ class WmModule extends ChangeNotifier {
   }
 
   Future<void> stopSession(String subject) async {
-    if (!_isSessionActive) return;
+    if (!_isSessionActive && !sessionManager.isRecording) return;
     final sessionStem = _recordEeg ? sessionManager.currentSessionStem : null;
-    runner.stop();
-    await sessionManager.stopSession();
     _isSessionActive = false;
     notifyListeners();
+    runner.stop();
+    await sessionManager.stopSession();
 
     await exportReports(subject, sessionStem: sessionStem);
   }
 
   Future<void> exportReports(String subject, {String? sessionStem}) async {
+    final stem =
+        sessionStem ??
+        FileNamingService.stem(subject, ModuleType.wm, runner.sessionStartTime);
+    final canExport =
+        !Platform.isAndroid ||
+        await Permission.manageExternalStorage.request().isGranted ||
+        await Permission.storage.request().isGranted;
+
+    // Keep CSV and PDF independent. A PDF layout/font error must never prevent
+    // the raw behavioural log from being copied to the configured output.
     try {
       final csvPath = await runner.writeLogFile(subject);
-      String? pdfPath;
-      if (runner.records.isNotEmpty) {
-        pdfPath = await WmSummaryService.generate(
+      if (canExport) {
+        await FileNamingService.exportToDownloads(
+          csvPath,
+          subject: subject,
+          sessionStem: stem,
+        );
+      }
+    } catch (e) {
+      debugPrint('[WmModule] Error exporting CSV report: $e');
+    }
+
+    if (runner.records.isNotEmpty) {
+      try {
+        final pdfPath = await WmSummaryService.generate(
           participant: subject,
           records: runner.records,
           sessionStart: runner.sessionStartTime,
         );
-      }
-
-      if (Platform.isAndroid) {
-        if (await Permission.manageExternalStorage.request().isGranted ||
-            await Permission.storage.request().isGranted) {
-          final stem =
-              sessionStem ??
-              FileNamingService.stem(
-                subject,
-                ModuleType.wm,
-                runner.sessionStartTime,
-              );
-
+        if (canExport) {
           await FileNamingService.exportToDownloads(
-            csvPath,
+            pdfPath,
             subject: subject,
             sessionStem: stem,
           );
-
-          if (pdfPath != null) {
-            await FileNamingService.exportToDownloads(
-              pdfPath,
-              subject: subject,
-              sessionStem: stem,
-            );
-          }
         }
+      } catch (e) {
+        debugPrint('[WmModule] Error exporting PDF report: $e');
       }
-    } catch (e) {
-      debugPrint('[WmModule] Error exporting reports: $e');
     }
   }
 

@@ -35,9 +35,13 @@ class TrialRunner extends ChangeNotifier {
   List<TrialRecord> get records => List.unmodifiable(_records);
 
   int get accuracyCount => _records.where((r) => r.accuracy == 1).length;
-  double get overallAccuracy => _records.isEmpty ? 0 : accuracyCount / _records.length;
+  double get overallAccuracy =>
+      _records.isEmpty ? 0 : accuracyCount / _records.length;
   double get meanRtMs {
-    final validRts = _records.where((r) => r.reactionTimeMs != null).map((r) => r.reactionTimeMs!).toList();
+    final validRts = _records
+        .where((r) => r.reactionTimeMs != null)
+        .map((r) => r.reactionTimeMs!)
+        .toList();
     if (validRts.isEmpty) return 0;
     return validRts.reduce((a, b) => a + b) / validRts.length;
   }
@@ -125,30 +129,40 @@ class TrialRunner extends ChangeNotifier {
   }
 
   Future<void> _runTrial(TrialPlan trial) async {
-    final trialStartGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final trialStartGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
     _transitionTo(TrialPhase.iti, trial);
     await _delay(_random.nextInt(501) + 300); // 300 to 800 ms ITI
 
-    final fixationOnsetGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final fixationOnsetGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
     _pushMarker('fixation', 88);
     _transitionTo(TrialPhase.fixation, trial);
     await _delay(fixationDurationMs);
 
-    final cueOnsetGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final cueOnsetGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
     _transitionTo(TrialPhase.cue, trial);
     await _delay(cueDurationMs);
 
-    final encodingOnsetGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
-    final encodingMarker = (trial.setSize * 10) + (trial.cuedHemifield == Hemifield.left ? 1 : 9);
-    _pushMarker('encoding_sz${trial.setSize}_${trial.cuedHemifield.name}', encodingMarker);
+    final encodingOnsetGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final encodingMarker =
+        (trial.setSize * 10) + (trial.cuedHemifield == Hemifield.left ? 1 : 9);
+    _pushMarker(
+      'encoding_sz${trial.setSize}_${trial.cuedHemifield.name}',
+      encodingMarker,
+    );
     _transitionTo(TrialPhase.encoding, trial);
     await _delay(encodingDurationMs);
 
-    final maintenanceOnsetGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final maintenanceOnsetGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
     _transitionTo(TrialPhase.maintenance, trial);
     await _delay(delayDurationMs);
 
-    final retrievalOnsetGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final retrievalOnsetGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
     final response = await _runRetrieval(trial);
     final userDecision = response ?? MatchDecision.noResponse;
 
@@ -172,7 +186,8 @@ class TrialRunner extends ChangeNotifier {
       rt = DateTime.now().millisecondsSinceEpoch - _retrievalOnsetMs;
     }
 
-    final trialEndGlobalMs = DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
+    final trialEndGlobalMs =
+        DateTime.now().millisecondsSinceEpoch - _sessionStartMs;
 
     _records.add(
       TrialRecord(
@@ -338,7 +353,10 @@ class TrialRunner extends ChangeNotifier {
         ? 'unknown'
         : subjectId.trim().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
 
-    final stamp = sessionStartTime.toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
+    final stamp = sessionStartTime.toIso8601String().replaceAll(
+      RegExp(r'[:.]'),
+      '-',
+    );
     final file = File('${dataDir.path}/adaptive_wm_${cleanSubject}_$stamp.csv');
 
     final rows = <List<dynamic>>[

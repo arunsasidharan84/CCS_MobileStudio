@@ -3,18 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 class StanfordSleepinessScale {
-  static Future<void> saveScore(String appName, String subjectId, String timing, int score) async {
+  static Future<void> saveScore(
+    String appName,
+    String subjectId,
+    String timing,
+    int score,
+  ) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final dataDir = Directory('${dir.path}/data');
       if (!await dataDir.exists()) await dataDir.create(recursive: true);
-      
+
       final file = File('${dataDir.path}/sleepiness_scores.csv');
       final exists = await file.exists();
       final timestamp = DateTime.now().toIso8601String();
       final csvLine = '"$timestamp","$appName","$subjectId","$timing",$score\n';
       if (!exists) {
-        await file.writeAsString('timestamp,app_name,subject_id,timing,score\n$csvLine');
+        await file.writeAsString(
+          'timestamp,app_name,subject_id,timing,score\n$csvLine',
+        );
       } else {
         await file.writeAsString(csvLine, mode: FileMode.append);
       }
@@ -36,7 +43,12 @@ class StanfordSleepinessScaleDialog extends StatefulWidget {
     required this.timing,
   });
 
-  static Future<int?> show(BuildContext context, String appName, String subjectId, String timing) {
+  static Future<int?> show(
+    BuildContext context,
+    String appName,
+    String subjectId,
+    String timing,
+  ) {
     return showDialog<int>(
       context: context,
       barrierDismissible: false,
@@ -49,10 +61,12 @@ class StanfordSleepinessScaleDialog extends StatefulWidget {
   }
 
   @override
-  State<StanfordSleepinessScaleDialog> createState() => _StanfordSleepinessScaleDialogState();
+  State<StanfordSleepinessScaleDialog> createState() =>
+      _StanfordSleepinessScaleDialogState();
 }
 
-class _StanfordSleepinessScaleDialogState extends State<StanfordSleepinessScaleDialog> {
+class _StanfordSleepinessScaleDialogState
+    extends State<StanfordSleepinessScaleDialog> {
   int? _selectedScore;
 
   final List<String> _scaleItems = [
@@ -62,7 +76,7 @@ class _StanfordSleepinessScaleDialogState extends State<StanfordSleepinessScaleD
     "4 - Somewhat foggy, let down",
     "5 - Foggy; losing interest in remaining awake; slowed down",
     "6 - Sleepy, woozy, fighting sleep; prefer to lie down",
-    "7 - No longer fighting sleep, sleep onset soon; having dream-like thoughts"
+    "7 - No longer fighting sleep, sleep onset soon; having dream-like thoughts",
   ];
 
   @override
@@ -121,7 +135,9 @@ class _StanfordSleepinessScaleDialogState extends State<StanfordSleepinessScaleD
           child: Text(
             'Submit',
             style: TextStyle(
-              color: _selectedScore == null ? Colors.blueGrey : const Color(0xFF14B8A6),
+              color: _selectedScore == null
+                  ? Colors.blueGrey
+                  : const Color(0xFF14B8A6),
               fontSize: 16,
               fontWeight: FontWeight.bold,
             ),

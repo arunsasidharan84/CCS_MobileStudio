@@ -151,6 +151,35 @@ class NativeCore {
             )
           >('tn_edf_open_with_labels_and_ranges');
     } catch (_) {}
+    try {
+      _edfOpenWithLabelsAndRangesF64 = _lib
+          .lookupFunction<
+            Pointer<Void> Function(
+              Pointer<Utf8>,
+              Pointer<Utf8>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Double>,
+              Pointer<Double>,
+              IntPtr,
+              Double,
+            ),
+            Pointer<Void> Function(
+              Pointer<Utf8>,
+              Pointer<Utf8>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Pointer<Utf8>>,
+              Pointer<Double>,
+              Pointer<Double>,
+              int,
+              double,
+            )
+          >('tn_edf_open_with_labels_and_ranges_f64');
+    } catch (_) {}
   }
 
   static final NativeCore instance = NativeCore._();
@@ -192,19 +221,42 @@ class NativeCore {
     int,
   )?
   _edfOpenWithLabelsAndRanges;
+  Pointer<Void> Function(
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Pointer<Utf8>>,
+    Pointer<Pointer<Utf8>>,
+    Pointer<Pointer<Utf8>>,
+    Pointer<Pointer<Utf8>>,
+    Pointer<Double>,
+    Pointer<Double>,
+    int,
+    double,
+  )?
+  _edfOpenWithLabelsAndRangesF64;
 
   DynamicLibrary _openLibrary() {
     if (Platform.isAndroid) {
       return DynamicLibrary.open('libtrain_nidra_core.so');
     }
-    if (Platform.isIOS || Platform.isMacOS) {
+    if (Platform.isMacOS) {
+      final executableDirectory = File(Platform.resolvedExecutable).parent;
+      final bundledLibrary = File(
+        '${executableDirectory.parent.path}/Frameworks/'
+        'libtrain_nidra_core.dylib',
+      );
       try {
+        return DynamicLibrary.open(bundledLibrary.path);
+      } catch (_) {
+        // Keep command-line and local debug execution convenient.
         return DynamicLibrary.open(
           'rust/target/debug/libtrain_nidra_core.dylib',
         );
-      } catch (_) {
-        return DynamicLibrary.process();
       }
+    }
+    if (Platform.isIOS) return DynamicLibrary.process();
+    if (Platform.isWindows) {
+      return DynamicLibrary.open('train_nidra_core.dll');
     }
     if (Platform.isLinux) {
       return DynamicLibrary.open('rust/target/debug/libtrain_nidra_core.so');
@@ -392,6 +444,86 @@ class NativeCore {
       _freeStringArray(transArr, transducers.length);
       calloc.free(minArr);
       calloc.free(maxArr);
+    }
+  }
+
+  Pointer<Void> openEdfWithLabelsAtRate(
+    String path,
+    String subject,
+    int channelCount,
+    double sampleRate,
+    List<String> channelNames,
+    List<String> physicalDimensions,
+    List<String> prefilters,
+    List<String> transducers, {
+    required List<double> physicalMinimums,
+    required List<double> physicalMaximums,
+  }) {
+    final fn = _edfOpenWithLabelsAndRangesF64;
+    if (fn == null) {
+      return openEdfWithLabels(
+        path,
+        subject,
+        channelCount,
+        sampleRate.round(),
+        channelNames,
+        physicalDimensions,
+        prefilters,
+        transducers,
+        physicalMinimums: physicalMinimums,
+        physicalMaximums: physicalMaximums,
+      );
+    }
+
+    Pointer<Pointer<Utf8>> allocStrings(List<String> values) {
+      final array = calloc<Pointer<Utf8>>(values.length);
+      for (var i = 0; i < values.length; i++) {
+        array[i] = values[i].toNativeUtf8();
+      }
+      return array;
+    }
+
+    void freeStrings(Pointer<Pointer<Utf8>> values, int count) {
+      for (var i = 0; i < count; i++) {
+        calloc.free(values[i]);
+      }
+      calloc.free(values);
+    }
+
+    final pathPtr = path.toNativeUtf8();
+    final subjectPtr = subject.toNativeUtf8();
+    final names = allocStrings(channelNames);
+    final dimensions = allocStrings(physicalDimensions);
+    final filters = allocStrings(prefilters);
+    final sensors = allocStrings(transducers);
+    final minimums = calloc<Double>(channelCount);
+    final maximums = calloc<Double>(channelCount);
+    for (var i = 0; i < channelCount; i++) {
+      minimums[i] = physicalMinimums[i];
+      maximums[i] = physicalMaximums[i];
+    }
+    try {
+      return fn(
+        pathPtr,
+        subjectPtr,
+        names,
+        dimensions,
+        filters,
+        sensors,
+        minimums,
+        maximums,
+        channelCount,
+        sampleRate,
+      );
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(subjectPtr);
+      freeStrings(names, channelNames.length);
+      freeStrings(dimensions, physicalDimensions.length);
+      freeStrings(filters, prefilters.length);
+      freeStrings(sensors, transducers.length);
+      calloc.free(minimums);
+      calloc.free(maximums);
     }
   }
 }

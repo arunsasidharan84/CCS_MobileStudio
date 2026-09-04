@@ -35,11 +35,7 @@ class Trial {
   final String? correctResponse;
   final String? reversalPhase;
 
-  Trial copyWith({
-    String? level,
-    int? block,
-    int? trialInBlock,
-  }) {
+  Trial copyWith({String? level, int? block, int? trialInBlock}) {
     return Trial(
       level: level ?? this.level,
       block: block ?? this.block,
@@ -87,38 +83,86 @@ class TrialGenerator {
       'family': 'face',
       'description': 'Mooney face',
       'files': [
-        'fpa01.png', 'fpa02.png', 'fpa03.png', 'fpa04.png', 'fpa05.png',
-        'fpa06.png', 'fpa07.png', 'fpa08.png', 'fpa09.png', 'fpa10.png',
-        'fpa11.png', 'fpa12.png', 'fpa13.png', 'fpa14.png', 'fpa15.png',
-        'fpa16.png', 'fpa17.png', 'fpa18.png', 'fpa19.png', 'fpa20.png',
-        'fpa21.png', 'fpa22.png', 'fpa23.png', 'fpa24.png', 'fpa25.png',
-        'fpa26.png', 'fpa27.png', 'fpa28.png', 'fpa29.png', 'fpa30.png',
-      ]
+        'fpa01.png',
+        'fpa02.png',
+        'fpa03.png',
+        'fpa04.png',
+        'fpa05.png',
+        'fpa06.png',
+        'fpa07.png',
+        'fpa08.png',
+        'fpa09.png',
+        'fpa10.png',
+        'fpa11.png',
+        'fpa12.png',
+        'fpa13.png',
+        'fpa14.png',
+        'fpa15.png',
+        'fpa16.png',
+        'fpa17.png',
+        'fpa18.png',
+        'fpa19.png',
+        'fpa20.png',
+        'fpa21.png',
+        'fpa22.png',
+        'fpa23.png',
+        'fpa24.png',
+        'fpa25.png',
+        'fpa26.png',
+        'fpa27.png',
+        'fpa28.png',
+        'fpa29.png',
+        'fpa30.png',
+      ],
     },
     'face_absent': {
       'meaning': 'ambiguous',
       'family': 'face',
       'description': 'distorted Mooney face',
       'files': [
-        'faa01.png', 'faa02.png', 'faa03.png', 'faa04.png', 'faa05.png',
-        'faa06.png', 'faa07.png', 'faa08.png', 'faa09.png', 'faa10.png',
-        'faa11.png', 'faa12.png', 'faa13.png', 'faa14.png', 'faa15.png',
-        'faa16.png', 'faa17.png', 'faa18.png', 'faa19.png', 'faa20.png',
-        'faa21.png', 'faa22.png', 'faa23.png', 'faa24.png', 'faa25.png',
-        'faa26.png', 'faa27.png', 'faa28.png', 'faa29.png', 'faa30.png',
-      ]
+        'faa01.png',
+        'faa02.png',
+        'faa03.png',
+        'faa04.png',
+        'faa05.png',
+        'faa06.png',
+        'faa07.png',
+        'faa08.png',
+        'faa09.png',
+        'faa10.png',
+        'faa11.png',
+        'faa12.png',
+        'faa13.png',
+        'faa14.png',
+        'faa15.png',
+        'faa16.png',
+        'faa17.png',
+        'faa18.png',
+        'faa19.png',
+        'faa20.png',
+        'faa21.png',
+        'faa22.png',
+        'faa23.png',
+        'faa24.png',
+        'faa25.png',
+        'faa26.png',
+        'faa27.png',
+        'faa28.png',
+        'faa29.png',
+        'faa30.png',
+      ],
     },
     'shape_present': {
       'meaning': 'meaningful',
       'family': 'shape',
       'description': 'Kanizsa triangle',
-      'files': ['knz_wob.png', 'knz_bow.png']
+      'files': ['knz_wob.png', 'knz_bow.png'],
     },
     'shape_absent': {
       'meaning': 'ambiguous',
       'family': 'shape',
       'description': 'distorted Kanizsa',
-      'files': ['nknz_wob.png', 'nknz_bow.png']
+      'files': ['nknz_wob.png', 'nknz_bow.png'],
     },
   };
 
@@ -153,7 +197,9 @@ class TrialGenerator {
         final targetSide = rng.nextBool() ? 'left' : 'right';
         final correctResponse = level == '1'
             ? targetSide
-            : (categories[stimCategory]!['meaning'] == 'meaningful' ? 'left' : 'right');
+            : (categories[stimCategory]!['meaning'] == 'meaningful'
+                  ? 'left'
+                  : 'right');
 
         trials.add(
           Trial(
@@ -213,7 +259,9 @@ class TrialGenerator {
     for (var blockIdx = 1; blockIdx <= blocks; blockIdx++) {
       final (standardCategory, standardSide) = selectedSpecs[blockIdx - 1];
       final otherSide = standardSide == 'left' ? 'right' : 'left';
-      final candidates = categoriesList.where((c) => c != standardCategory).toList();
+      final candidates = categoriesList
+          .where((c) => c != standardCategory)
+          .toList();
       String? omitted;
       List<String> rareCategories;
       if (candidates.length >= 2) {
@@ -268,8 +316,10 @@ class TrialGenerator {
       for (var trialIdx = 1; trialIdx <= activeTrialsPerBlock; trialIdx++) {
         final (stimulusCategory, frequencyClass) = active[trialIdx - 1];
         final auditoryClass = auditory[trialIdx - 1];
-        final targetSide = frequencyClass == 'frequent' ? standardSide : otherSide;
-        
+        final targetSide = frequencyClass == 'frequent'
+            ? standardSide
+            : otherSide;
+
         final double? auditoryOffset = _samplePairedToneOffset(
           auditoryClass: auditoryClass,
           mode: pairedToneOffsetMode,
@@ -288,7 +338,9 @@ class TrialGenerator {
           corollaryMode = blockCdModes[trialIdx - 1];
         } else {
           corollaryMode = level2Cd ? blockCdModes[trialIdx - 1] : 'none';
-          reversalPhase = blockIdx <= blocks / 2 ? 'pre_reversal' : 'post_reversal';
+          reversalPhase = blockIdx <= blocks / 2
+              ? 'pre_reversal'
+              : 'post_reversal';
           final meaning = categories[stimulusCategory]!['meaning'] as String;
           if (reversalPhase == 'pre_reversal') {
             correctResponse = meaning == 'meaningful' ? 'left' : 'right';
@@ -355,7 +407,9 @@ class TrialGenerator {
     }
 
     if (schedule == 'by-block') {
-      final blockFeedbackMode = immediateBlocks.contains(blockIndex) ? 'immediate' : 'delayed';
+      final blockFeedbackMode = immediateBlocks.contains(blockIndex)
+          ? 'immediate'
+          : 'delayed';
       final noneCount = (activeTrialsCount * 0.20).round();
       final feedbackCount = activeTrialsCount - noneCount;
       for (var i = 0; i < feedbackCount; i++) {

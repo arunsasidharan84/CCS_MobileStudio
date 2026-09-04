@@ -9,6 +9,8 @@ import '../../core/services/session_manager.dart';
 import '../../core/services/alert_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/permission_service.dart';
+import '../../core/services/file_naming_service.dart';
+import '../../core/services/multi_device_acquisition_service.dart';
 import '../../core/models/module_type.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import '../settings/settings_screen.dart';
@@ -17,6 +19,7 @@ import '../nidra/nidra_screen.dart';
 import '../angel/angel_screen.dart';
 import '../adaptive_wm/wm_screen.dart';
 import '../sleepiness/sleepiness_screen.dart';
+import '../heartsync/heartsync_screen.dart';
 
 /// Main unified dashboard for CCS Mobile Studio.
 ///
@@ -41,16 +44,38 @@ class _HomeScreenState extends State<HomeScreen> {
     final settings = context.read<SettingsService>();
     _subjectCtrl = TextEditingController(text: settings.subjectCode);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(context.read<PermissionService>().requestAll());
-      final eegService = context.read<AcquisitionService>();
-      if (eegService.currentState == AcquisitionState.disconnected) {
-        eegService.scan(autoConnect: true);
-      }
+      unawaited(_initializeStorageAndRecovery());
       final code = context.read<SettingsService>().subjectCode;
       if (_subjectCtrl.text != code) {
         setState(() => _subjectCtrl.text = code);
       }
     });
+  }
+
+  Future<void> _initializeStorageAndRecovery() async {
+    final permissions = context.read<PermissionService>();
+    final eegService = context.read<AcquisitionService>();
+    final settings = context.read<SettingsService>();
+    await settings.ready;
+    await permissions.requestAll();
+    final autoConnectEnabled = settings.deviceProfiles.any(
+      (profile) => profile.enabled && profile.autoConnect,
+    );
+    if (autoConnectEnabled &&
+        eegService.currentState == AcquisitionState.disconnected) {
+      await eegService.scan(autoConnect: true);
+    }
+    final recovered = await FileNamingService.recoverPendingFiles();
+    if (!mounted || recovered.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Recovered ${recovered.length} recording file${recovered.length == 1 ? '' : 's'} '
+          'from an interrupted session.',
+        ),
+        duration: const Duration(seconds: 8),
+      ),
+    );
   }
 
   @override
@@ -97,13 +122,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirmed == true && mounted) {
       final sessionManager = context.read<SessionManager>();
-      final eegService = context.read<AcquisitionService>();
+      final multiDevice = context.read<MultiDeviceAcquisitionService>();
       final nirsService = context.read<NirsAcquisitionService>();
 
       if (sessionManager.isRecording) {
         await sessionManager.stopRecording();
       }
-      eegService.disconnect();
+      await multiDevice.disconnectAll();
       nirsService.disconnect();
 
       exit(0);
@@ -117,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final sessionManager = context.watch<SessionManager>();
     final alertService = context.watch<AlertService>();
     final settings = context.watch<SettingsService>();
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     final eegState = eegService.currentState;
     final nirsState = nirsService.currentState;
@@ -133,40 +159,55 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF111827),
         elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF14B8A6).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
+        title: compact
+            ? const Text(
+                'CCS Mobile Studio',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 17,
+                ),
+              )
+            : Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF14B8A6).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.hub,
+                      color: Color(0xFF14B8A6),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'CCS Mobile Studio',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
+                      ),
+                      Text(
+                        'Unified Neuro-Cognitive Suite • NIMHANS / IAM',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              child: const Icon(Icons.hub, color: Color(0xFF14B8A6), size: 24),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'CCS Mobile Studio',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
-                ),
-                Text(
-                  'Unified Neuro-Cognitive Suite • NIMHANS / IAM',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.volume_up, color: Colors.white70),
@@ -192,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20.0),
+          padding: EdgeInsets.all(compact ? 12 : 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -200,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ConnectionStatusBar(
                 eegState: eegState,
                 nirsState: nirsState,
-                deviceLabel: 'xAMP-L10 / EpiDome',
+                deviceLabel: eegService.connectedDeviceLabel,
                 onDisconnectEeg: () => eegService.disconnect(),
                 onDisconnectNirs: () => nirsService.disconnect(),
                 onOpenConnectDialog: () => showDeviceConnectionDialog(context),
@@ -271,6 +312,52 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context,
     SettingsService settings,
   ) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final description = const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'GLOBAL SUBJECT ID / SESSION TAG',
+          style: TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        SizedBox(height: 2),
+        Text(
+          'Inherited automatically across all modules',
+          style: TextStyle(color: Colors.white38, fontSize: 11),
+        ),
+      ],
+    );
+    final subjectField = TextField(
+      controller: _subjectCtrl,
+      style: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.bold,
+        fontSize: 16,
+      ),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFF0F172A),
+        hintText: 'S001',
+        hintStyle: const TextStyle(color: Colors.white38),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+      ),
+      onChanged: (val) {
+        final code = val.trim().isEmpty ? 'S001' : val.trim();
+        settings.updateSubjectCode(code);
+      },
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -281,64 +368,30 @@ class _HomeScreenState extends State<HomeScreen> {
           width: 1.5,
         ),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.badge, color: Color(0xFF14B8A6), size: 24),
-          const SizedBox(width: 12),
-          const Expanded(
-            flex: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'GLOBAL SUBJECT ID / SESSION TAG',
-                  style: TextStyle(
-                    color: Colors.white54,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    const Icon(Icons.badge, color: Color(0xFF14B8A6), size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(child: description),
+                  ],
                 ),
-                SizedBox(height: 2),
-                Text(
-                  'Inherited automatically across all modules',
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
-                ),
+                const SizedBox(height: 10),
+                subjectField,
+              ],
+            )
+          : Row(
+              children: [
+                const Icon(Icons.badge, color: Color(0xFF14B8A6), size: 24),
+                const SizedBox(width: 12),
+                Expanded(flex: 2, child: description),
+                const SizedBox(width: 12),
+                Expanded(flex: 2, child: subjectField),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: TextField(
-              controller: _subjectCtrl,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-              decoration: InputDecoration(
-                isDense: true,
-                filled: true,
-                fillColor: const Color(0xFF0F172A),
-                hintText: 'S001',
-                hintStyle: const TextStyle(color: Colors.white38),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-              ),
-              onChanged: (val) {
-                final code = val.trim().isEmpty ? 'S001' : val.trim();
-                settings.updateSubjectCode(code);
-              },
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -350,10 +403,11 @@ class _HomeScreenState extends State<HomeScreen> {
         .where((module) => _isModuleEnabled(module, settings))
         .toList(growable: false);
     if (steps.isEmpty) return const SizedBox.shrink();
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(compact ? 12 : 18),
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
@@ -366,15 +420,16 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Icon(Icons.route, color: Color(0xFF14B8A6), size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'Study Run Sequence',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
+              Expanded(
+                child: Text(
+                  'Study Run Sequence',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
                 ),
               ),
-              const Spacer(),
               IconButton(
                 tooltip: 'Troubleshoot & Diagnostics',
                 onPressed: () => _showDiagnosticsModal(context),
@@ -383,19 +438,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Color(0xFF3B82F6),
                 ),
               ),
-              const SizedBox(width: 4),
-              TextButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                  );
-                },
-                icon: const Icon(Icons.edit, size: 16),
-                label: const Text('Edit'),
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF14B8A6),
+              if (!compact) const SizedBox(width: 4),
+              if (!compact)
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Edit'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF14B8A6),
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -427,6 +483,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.nidra => const Color(0xFF818CF8),
       ModuleType.angel => const Color(0xFFF59E0B),
       ModuleType.wm => const Color(0xFFEC4899),
+      ModuleType.heartsync => const Color(0xFFF43F5E),
       ModuleType.sleepiness => const Color(0xFF10B981),
     };
     final icon = switch (module) {
@@ -434,6 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.nidra => Icons.bedtime,
       ModuleType.angel => Icons.psychology,
       ModuleType.wm => Icons.memory,
+      ModuleType.heartsync => Icons.favorite,
       ModuleType.sleepiness => Icons.assignment_turned_in,
     };
     final subtitle = switch (module) {
@@ -441,9 +499,11 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.nidra => 'Sleep staging and auditory stimulation',
       ModuleType.angel => 'Cognitive ERP battery',
       ModuleType.wm => 'Adaptive working memory task',
+      ModuleType.heartsync => 'Heartbeat-locked cardiac oddball task',
       ModuleType.sleepiness => 'Stanford Sleepiness Scale assessment & logs',
     };
 
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return Material(
       color: const Color(0xFF0F172A),
       borderRadius: BorderRadius.circular(12),
@@ -452,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(12),
         child: Container(
           constraints: const BoxConstraints(minHeight: 96),
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(compact ? 12 : 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.withOpacity(0.45), width: 1.3),
@@ -460,7 +520,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               CircleAvatar(
-                radius: 26,
+                radius: compact ? 21 : 26,
                 backgroundColor: color.withOpacity(0.18),
                 foregroundColor: color,
                 child: Text(
@@ -471,9 +531,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
-              Icon(icon, color: color, size: 30),
-              const SizedBox(width: 16),
+              SizedBox(width: compact ? 10 : 16),
+              if (!compact) Icon(icon, color: color, size: 30),
+              if (!compact) const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,10 +541,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Text(
                       module.displayName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        fontSize: 20,
+                        fontSize: compact ? 17 : 20,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -517,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.nidra => const NidraScreen(),
       ModuleType.angel => const AngelScreen(),
       ModuleType.wm => const WmScreen(),
+      ModuleType.heartsync => const HeartSyncScreen(),
       ModuleType.sleepiness => const SleepinessScreen(),
     };
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -539,7 +600,7 @@ class _DiagnosticsDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final alertService = context.watch<AlertService>();
-    final sessionManager = context.watch<SessionManager>();
+    final settings = context.watch<SettingsService>();
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
@@ -596,25 +657,28 @@ class _DiagnosticsDrawer extends StatelessWidget {
               'Storage & Recording Exporter',
               style: TextStyle(color: Colors.white),
             ),
-            subtitle: Text(
-              'Exported files location: ${sessionManager.lastExportPath ?? "Downloads/CCS_MobileStudio"}',
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            subtitle: FutureBuilder<String>(
+              future: settings.effectiveOutputDirectory(),
+              builder: (context, snapshot) => Text(
+                'Output folder: ${snapshot.data ?? "Resolving…"}',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
             ),
             trailing: ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF10B981),
                 foregroundColor: Colors.black,
               ),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'All recordings are automatically synced to Downloads/CCS_MobileStudio',
-                    ),
-                  ),
-                );
+              onPressed: () async {
+                final opened = await settings.openOutputDirectory();
+                if (!context.mounted || opened) return;
+                final path = await settings.effectiveOutputDirectory();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Output folder: $path')));
               },
-              child: const Text('Check Files'),
+              child: const Text('Open Folder'),
             ),
           ),
           const Divider(color: Colors.white12),

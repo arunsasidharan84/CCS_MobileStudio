@@ -1,0 +1,88 @@
+name: Desktop release builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - pubspec.yaml
+      - .github/workflows/desktop-release.yml
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS universal app
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Verify Dart code
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Package macOS app
+        run: |
+          VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml | tr '+' '-')
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/macos/Build/Products/Release/ccs_mobile_studio.app" \
+            "build/CCS-Mobile-Studio-${VERSION}-macOS-universal.zip"
+          echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-macOS-universal
+          path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-macOS-universal.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64 app
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value).Replace('+', '-')
+          $archive = "build/CCS-Mobile-Studio-$version-Windows-x64.zip"
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath $archive
+          "DESKTOP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Windows-x64
+          path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Windows-x64.zip
+          if-no-files-found: error

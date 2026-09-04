@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/eeg_sample.dart';
 import 'native_core.dart';
+import 'orbit_packet_decoder.dart';
 
 /// Records EEG samples to disk in EDF format.
 class EdfRecorder extends ChangeNotifier {
@@ -17,6 +18,11 @@ class EdfRecorder extends ChangeNotifier {
   List<String> _channelLabels = [];
   List<bool>? _enabledChannels;
   int _pendingMarkerCode = 0;
+  final List<OrbitEegDcBlocker> _eegDcBlockers = List.generate(
+    16,
+    (_) => OrbitEegDcBlocker(),
+  );
+  bool _dcBlockElectrophysiology = false;
 
   int _segmentIndex = 0;
   String? _sessionTimestamp;
@@ -28,6 +34,79 @@ class EdfRecorder extends ChangeNotifier {
   int get sampleRate => _sampleRate;
   List<String> get channelLabels => List.unmodifiable(_channelLabels);
   List<bool>? get enabledChannels => _enabledChannels;
+  bool get dcBlockElectrophysiology => _dcBlockElectrophysiology;
+
+  @visibleForTesting
+  static ({List<int> indices, List<String> labels}) selectEnabledChannels({
+    required int channelCount,
+    List<String>? channelLabels,
+    List<bool>? enabledChannels,
+  }) {
+    final requestedChannelCount = channelCount.clamp(1, 16);
+    final indices = List<int>.generate(requestedChannelCount, (index) => index)
+        .where((index) {
+          return enabledChannels == null ||
+              index >= enabledChannels.length ||
+              enabledChannels[index];
+        })
+        .toList(growable: false);
+    final labels = indices
+        .map((index) {
+          return channelLabels != null && index < channelLabels.length
+              ? channelLabels[index]
+              : 'Ch ${index + 1}';
+        })
+        .toList(growable: false);
+    return (indices: indices, labels: labels);
+  }
+
+  @visibleForTesting
+  static ({
+    List<String> physicalDimensions,
+    List<String> transducers,
+    List<double> physicalMinimums,
+    List<double> physicalMaximums,
+  })
+  signalMetadata(List<String> labels) {
+    String role(String label) {
+      final upper = label.trim().toUpperCase();
+      if (upper.contains('EOG')) return 'eog';
+      if (upper.contains('EMG')) return 'emg';
+      if (upper.contains('ECG') || upper.contains('EKG')) return 'ecg';
+      if (upper.contains('PPG')) return 'ppg';
+      return 'eeg';
+    }
+
+    bool isPpg(String label) => role(label) == 'ppg';
+    String transducer(String label) => switch (role(label)) {
+      'eog' => 'EOG electrode',
+      'emg' => 'EMG electrode',
+      'ecg' => 'ECG electrode',
+      'ppg' => 'Optical PPG sensor',
+      _ => 'EEG electrode',
+    };
+    final upperLabels = labels
+        .map((label) => label.trim().toUpperCase())
+        .toSet();
+    final isOrbit =
+        labels.any(isPpg) ||
+        (upperLabels.contains('AF7') && upperLabels.contains('AF8'));
+
+    return (
+      physicalDimensions: labels
+          .map((label) => isPpg(label) ? 'a.u.' : 'uV')
+          .toList(growable: false),
+      transducers: labels.map(transducer).toList(growable: false),
+      physicalMinimums: labels
+          .map(
+            (label) => isPpg(label) ? -32768.0 : (isOrbit ? -15000.0 : -3000.0),
+          )
+          .toList(growable: false),
+      physicalMaximums: labels
+          .map((label) => isPpg(label) ? 32767.0 : (isOrbit ? 15000.0 : 3000.0))
+          .toList(growable: false),
+    );
+  }
 
   /// Start recording directly at a specific file path (used by SessionManager).
   Future<String> startAtPath({
@@ -37,14 +116,27 @@ class EdfRecorder extends ChangeNotifier {
     required int sampleRate,
     List<String>? channelLabels,
     List<bool>? enabledChannels,
+    bool dcBlockElectrophysiology = false,
   }) async {
     await stop();
-    _signalChannelCount = channelCount.clamp(1, 16);
+    final selection = selectEnabledChannels(
+      channelCount: channelCount,
+      channelLabels: channelLabels,
+      enabledChannels: enabledChannels,
+    );
+    if (selection.indices.isEmpty) {
+      throw ArgumentError('At least one EEG channel must be enabled.');
+    }
+    _signalChannelCount = selection.indices.length;
     _edfChannelCount = _signalChannelCount + 1;
     _sampleRate = sampleRate.clamp(50, 1000);
-    _channelLabels = channelLabels ?? [];
+    _channelLabels = selection.labels;
     _enabledChannels = enabledChannels;
+    _dcBlockElectrophysiology = dcBlockElectrophysiology;
     _pendingMarkerCode = 0;
+    for (final blocker in _eegDcBlockers) {
+      blocker.reset();
+    }
     _path = path;
 
     final cleanSubject = subject.trim().isEmpty
@@ -61,24 +153,23 @@ class EdfRecorder extends ChangeNotifier {
                 (i) => 'Ch ${_channelLabels.length + i + 1}',
               ),
             ];
+      final signalMetadata = EdfRecorder.signalMetadata(labels);
       labels.add('Marker');
-      final physDims = [...List.filled(_signalChannelCount, 'uV'), 'code'];
+      final physDims = [...signalMetadata.physicalDimensions, 'code'];
       final prefilters = [
-        ...List.filled(_signalChannelCount, 'None'),
+        ...labels.take(_signalChannelCount).map((label) {
+          if (label.toUpperCase().contains('PPG')) {
+            return 'DC blocked + smoothed';
+          }
+          return _dcBlockElectrophysiology
+              ? 'HP:0.2Hz software DC block'
+              : 'None';
+        }),
         'HP:0 LP:0',
       ];
-      final transducers = [
-        ...List.filled(_signalChannelCount, 'EEG electrode'),
-        'Event markers',
-      ];
-      final physicalMinimums = [
-        ...List.filled(_signalChannelCount, -3000.0),
-        -32768.0,
-      ];
-      final physicalMaximums = [
-        ...List.filled(_signalChannelCount, 3000.0),
-        32767.0,
-      ];
+      final transducers = [...signalMetadata.transducers, 'Event markers'];
+      final physicalMinimums = [...signalMetadata.physicalMinimums, -32768.0];
+      final physicalMaximums = [...signalMetadata.physicalMaximums, 32767.0];
 
       _writer = NativeCore.instance.openEdfWithLabels(
         _path!,
@@ -99,7 +190,10 @@ class EdfRecorder extends ChangeNotifier {
       ];
       final physDims = [...List.filled(_signalChannelCount, 'uV'), 'code'];
       final prefilters = [
-        ...List.filled(_signalChannelCount, 'HP:0.3 LP:35'),
+        ...List.filled(
+          _signalChannelCount,
+          _dcBlockElectrophysiology ? 'HP:0.2Hz software DC block' : 'None',
+        ),
         'HP:0 LP:0',
       ];
       final transducers = [
@@ -181,6 +275,7 @@ class EdfRecorder extends ChangeNotifier {
       sampleRate: sampleRate,
       channelLabels: channelLabels,
       enabledChannels: enabledChannels,
+      dcBlockElectrophysiology: _dcBlockElectrophysiology,
     );
   }
 
@@ -204,7 +299,14 @@ class EdfRecorder extends ChangeNotifier {
           i >= _enabledChannels!.length ||
           _enabledChannels![i];
       if (isEnabled && writeIdx < _signalChannelCount) {
-        values[writeIdx++] = sample.channels[i];
+        var value = sample.channels[i];
+        final isPpg =
+            i < _channelLabels.length &&
+            _channelLabels[i].toUpperCase().contains('PPG');
+        if (_dcBlockElectrophysiology && !isPpg && i < _eegDcBlockers.length) {
+          value = _eegDcBlockers[i].process(value);
+        }
+        values[writeIdx++] = value;
       }
     }
     values[_edfChannelCount - 1] = _pendingMarkerCode.toDouble();

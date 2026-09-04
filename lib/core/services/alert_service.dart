@@ -43,7 +43,10 @@ class AlertService {
   Future<void> _beep() async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     try {
-      await _channel.invokeMethod('playTone', {'volume': 85, 'durationMs': 300});
+      await _channel.invokeMethod('playTone', {
+        'volume': 85,
+        'durationMs': 300,
+      });
     } catch (e) {
       debugPrint('[AlertService] Beep failed: $e');
     }

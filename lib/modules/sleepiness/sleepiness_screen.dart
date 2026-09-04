@@ -39,7 +39,7 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
     "4 - Somewhat foggy, let down",
     "5 - Foggy; losing interest in remaining awake; slowed down",
     "6 - Sleepy, woozy, fighting sleep; prefer to lie down",
-    "7 - No longer fighting sleep, sleep onset soon; having dream-like thoughts"
+    "7 - No longer fighting sleep, sleep onset soon; having dream-like thoughts",
   ];
 
   @override
@@ -112,7 +112,9 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Saved Stanford Sleepiness Scale score: $score ($subjectCode)'),
+        content: Text(
+          'Saved Stanford Sleepiness Scale score: $score ($subjectCode)',
+        ),
         backgroundColor: const Color(0xFF14B8A6),
       ),
     );
@@ -129,7 +131,10 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0F19),
       appBar: AppBar(
-        title: const Text('Stanford Sleepiness Scale (SSS)', style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Stanford Sleepiness Scale (SSS)',
+          style: TextStyle(color: Colors.white),
+        ),
         backgroundColor: const Color(0xFF111827),
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -150,28 +155,52 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.person, color: Color(0xFF14B8A6), size: 28),
+                    const Icon(
+                      Icons.person,
+                      color: Color(0xFF14B8A6),
+                      size: 28,
+                    ),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('GLOBAL SUBJECT ID (Inherited from Main UI)', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          const Text(
+                            'GLOBAL SUBJECT ID (Inherited from Main UI)',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                            ),
+                          ),
                           const SizedBox(height: 4),
                           Text(
                             subjectCode,
-                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF111827),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text('Modular SSS Task', style: TextStyle(color: Color(0xFF14B8A6), fontSize: 12, fontWeight: FontWeight.bold)),
+                      child: const Text(
+                        'Modular SSS Task',
+                        style: TextStyle(
+                          color: Color(0xFF14B8A6),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -179,7 +208,14 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
               const SizedBox(height: 20),
 
               // Timing Selector
-              const Text('Assessment Checkpoint / Timing', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                'Assessment Checkpoint / Timing',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -194,7 +230,9 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                   underline: const SizedBox.shrink(),
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   icon: Icon(Icons.arrow_drop_down, color: lightTeal),
-                  items: _timingOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                  items: _timingOptions
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
                   onChanged: (val) {
                     if (val != null) setState(() => _selectedTiming = val);
                   },
@@ -203,7 +241,14 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
               const SizedBox(height: 24),
 
               // SSS Options
-              const Text('Select Current Subjective Alertness Level', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                'Select Current Subjective Alertness Level',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 10),
               Container(
                 decoration: BoxDecoration(
@@ -217,11 +262,18 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                     return InkWell(
                       onTap: () => setState(() => _selectedScore = score),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
-                          color: isSelected ? lightTeal.withOpacity(0.15) : Colors.transparent,
+                          color: isSelected
+                              ? lightTeal.withOpacity(0.15)
+                              : Colors.transparent,
                           border: index < _scaleItems.length - 1
-                              ? const Border(bottom: BorderSide(color: Colors.white10))
+                              ? const Border(
+                                  bottom: BorderSide(color: Colors.white10),
+                                )
                               : null,
                         ),
                         child: Row(
@@ -232,12 +284,16 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: isSelected ? lightTeal : const Color(0xFF111827),
+                                color: isSelected
+                                    ? lightTeal
+                                    : const Color(0xFF111827),
                               ),
                               child: Text(
                                 '$score',
                                 style: TextStyle(
-                                  color: isSelected ? Colors.black : Colors.white70,
+                                  color: isSelected
+                                      ? Colors.black
+                                      : Colors.white70,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
                                 ),
@@ -248,14 +304,22 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                               child: Text(
                                 _scaleItems[index],
                                 style: TextStyle(
-                                  color: isSelected ? Colors.white : Colors.white70,
-                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : Colors.white70,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
                                   fontSize: 14,
                                 ),
                               ),
                             ),
                             if (isSelected)
-                              Icon(Icons.check_circle, color: lightTeal, size: 22),
+                              Icon(
+                                Icons.check_circle,
+                                color: lightTeal,
+                                size: 22,
+                              ),
                           ],
                         ),
                       ),
@@ -270,20 +334,38 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _selectedScore == null ? const Color(0xFF334155) : lightTeal,
-                    foregroundColor: _selectedScore == null ? Colors.white38 : Colors.black,
+                    backgroundColor: _selectedScore == null
+                        ? const Color(0xFF334155)
+                        : lightTeal,
+                    foregroundColor: _selectedScore == null
+                        ? Colors.white38
+                        : Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  onPressed: _selectedScore == null ? null : () => _submitScore(subjectCode),
+                  onPressed: _selectedScore == null
+                      ? null
+                      : () => _submitScore(subjectCode),
                   icon: const Icon(Icons.save, size: 22),
-                  label: const Text('LOG SLEEPINESS SCORE TO CSV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  label: const Text(
+                    'LOG SLEEPINESS SCORE TO CSV',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
 
               // Recent Logs Table
-              const Text('Recent SSS Log Entries (sleepiness_scores.csv)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                'Recent SSS Log Entries (sleepiness_scores.csv)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
@@ -293,44 +375,73 @@ class _SleepinessScreenState extends State<SleepinessScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: _isLoadingHistory
-                    ? const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
                     : _recentScores.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Text('No previous sleepiness logs recorded yet.', style: TextStyle(color: Colors.white38)),
-                          )
-                        : Column(
-                            children: _recentScores.map((row) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 6),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: lightTeal.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'Score: ${row['score']}',
-                                        style: TextStyle(color: lightTeal, fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
+                    ? const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text(
+                          'No previous sleepiness logs recorded yet.',
+                          style: TextStyle(color: Colors.white38),
+                        ),
+                      )
+                    : Column(
+                        children: _recentScores.map((row) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: lightTeal.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'Score: ${row['score']}',
+                                    style: TextStyle(
+                                      color: lightTeal,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text('${row['subject_id']} • ${row['timing']}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                                          Text(row['timestamp'] ?? '', style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
-                              );
-                            }).toList(),
-                          ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${row['subject_id']} • ${row['timing']}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        row['timestamp'] ?? '',
+                                        style: const TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
               ),
             ],
           ),

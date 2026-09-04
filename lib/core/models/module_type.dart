@@ -3,6 +3,7 @@ enum ModuleType {
   nidra,
   angel,
   wm,
+  heartsync,
   standalone,
   sleepiness;
 
@@ -11,6 +12,7 @@ enum ModuleType {
     ModuleType.nidra => 'NIDRA',
     ModuleType.angel => 'ANGEL',
     ModuleType.wm => 'WM',
+    ModuleType.heartsync => 'HEARTSYNC',
     ModuleType.standalone => 'EEG',
     ModuleType.sleepiness => 'SSS',
   };
@@ -20,6 +22,7 @@ enum ModuleType {
     ModuleType.nidra => 'Train NIDRA',
     ModuleType.angel => 'ANGEL',
     ModuleType.wm => 'Adaptive WM',
+    ModuleType.heartsync => 'HeartSync',
     ModuleType.standalone => 'EEG Recorder',
     ModuleType.sleepiness => 'Sleepiness Scale',
   };
@@ -35,10 +38,15 @@ enum ModuleType {
     if (normalized == 'adaptive_wm' || normalized == 'adaptivewm') {
       return ModuleType.wm;
     }
+    if (normalized == 'heart_sync' || normalized == 'heart') {
+      return ModuleType.heartsync;
+    }
     if (normalized == 'recorder' || normalized == 'eeg_recorder') {
       return ModuleType.standalone;
     }
-    if (normalized == 'sss' || normalized == 'stanford_sleepiness_scale' || normalized == 'sleepiness_scale') {
+    if (normalized == 'sss' ||
+        normalized == 'stanford_sleepiness_scale' ||
+        normalized == 'sleepiness_scale') {
       return ModuleType.sleepiness;
     }
     return null;

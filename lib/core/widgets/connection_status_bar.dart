@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import '../eeg/acquisition_service.dart';
 import '../services/nirs_acquisition_service.dart';
 import '../services/session_manager.dart';
+import '../services/multi_stream_lsl_service.dart';
+import '../services/multi_device_acquisition_service.dart';
+import '../services/settings_service.dart';
 
 /// Unified connection status bar showing device connection state,
 /// active stream name, battery/signal if available, and disconnect/reconnect controls.
@@ -26,31 +29,63 @@ class ConnectionStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final eegConnected = eegState == AcquisitionState.streaming;
-    final eegConnecting = eegState == AcquisitionState.connecting ||
+    final eegService = context.watch<AcquisitionService>();
+    final multiLsl = context.watch<MultiStreamLslService>();
+    final multiDevice = context.watch<MultiDeviceAcquisitionService>();
+    final secondaryConnected = multiDevice.readySecondaryServices;
+    final eegConnected = eegService.isStreamReady;
+    final eegConnecting =
+        eegState == AcquisitionState.connecting ||
         eegState == AcquisitionState.scanning;
     final nirsStateVal = nirsState ?? NirsAcquisitionState.disconnected;
     final nirsConnected = nirsStateVal == NirsAcquisitionState.connected;
     final nirsConnecting = nirsStateVal == NirsAcquisitionState.resolving;
 
-    final anythingConnected = eegConnected || nirsConnected;
-    final anythingConnecting = eegConnecting || nirsConnecting;
+    final anythingConnected =
+        eegConnected ||
+        secondaryConnected.isNotEmpty ||
+        nirsConnected ||
+        multiLsl.isConnected;
+    final anythingConnecting =
+        eegConnecting ||
+        multiDevice.isBusy ||
+        nirsConnecting ||
+        multiLsl.state == AcquisitionState.connecting;
+    bool rateIsDegraded(AcquisitionService service) {
+      final received = service.deliveredSampleRate;
+      return received != null && received < service.sampleRate * 0.8;
+    }
+
+    final rateDegraded =
+        (eegConnected && rateIsDegraded(eegService)) ||
+        secondaryConnected.any(rateIsDegraded);
 
     Color statusColor;
     String statusText;
     IconData statusIcon;
 
     if (anythingConnected) {
-      statusColor = const Color(0xFF10B981); // Emerald green
-      statusIcon = Icons.check_circle;
+      statusColor = rateDegraded
+          ? const Color(0xFFFBBF24)
+          : const Color(0xFF10B981);
+      statusIcon = rateDegraded ? Icons.warning_amber : Icons.check_circle;
       final parts = <String>[];
+      if (rateDegraded) parts.add('Stream rate degraded');
       if (eegConnected) parts.add(deviceLabel ?? 'EEG Connected');
+      if (secondaryConnected.isNotEmpty) {
+        parts.add('${secondaryConnected.length} additional device(s)');
+      }
       if (nirsConnected) parts.add('fNIRS Connected');
+      if (multiLsl.isConnected) {
+        parts.add('${multiLsl.connectedStreams.length} LSL stream(s)');
+      }
       statusText = parts.join(' • ');
     } else if (anythingConnecting) {
       statusColor = const Color(0xFFFBBF24); // Amber
       statusIcon = Icons.sync;
-      statusText = eegConnecting ? 'Connecting EEG...' : 'Connecting fNIRS...';
+      statusText = nirsConnecting && !eegConnecting && !multiDevice.isBusy
+          ? 'Connecting fNIRS...'
+          : 'Connecting devices...';
     } else {
       statusColor = const Color(0xFFEF4444); // Red
       statusIcon = Icons.error_outline;
@@ -62,10 +97,7 @@ class ConnectionStatusBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: statusColor.withOpacity(0.3),
-          width: 1.5,
-        ),
+        border: Border.all(color: statusColor.withOpacity(0.3), width: 1.5),
       ),
       child: Row(
         children: [
@@ -86,9 +118,14 @@ class ConnectionStatusBar extends StatelessWidget {
                     fontSize: 14,
                   ),
                 ),
-                if (eegConnected || nirsConnected)
+                if (eegConnected ||
+                    secondaryConnected.isNotEmpty ||
+                    nirsConnected ||
+                    multiLsl.isConnected)
                   Text(
-                    'Streaming live data',
+                    rateDegraded
+                        ? 'Data delivery is below the configured sample rate'
+                        : 'Streaming live data',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -100,27 +137,43 @@ class ConnectionStatusBar extends StatelessWidget {
             ),
           ),
           if (anythingConnected) ...[
-            if (eegConnected && onDisconnectEeg != null)
-              IconButton(
-                icon: const Icon(Icons.bluetooth_disabled, color: Colors.white70, size: 20),
-                tooltip: 'Disconnect EEG',
-                onPressed: onDisconnectEeg,
+            TextButton.icon(
+              icon: const Icon(Icons.settings_input_antenna, size: 18),
+              label: const Text('Manage'),
+              onPressed:
+                  onOpenConnectDialog ??
+                  () => showDeviceConnectionDialog(context),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.link_off, size: 18),
+              label: const Text('Disconnect all'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFFCA5A5),
               ),
-            if (nirsConnected && onDisconnectNirs != null)
-              IconButton(
-                icon: const Icon(Icons.wifi_off, color: Colors.white70, size: 20),
-                tooltip: 'Disconnect fNIRS',
-                onPressed: onDisconnectNirs,
-              ),
+              onPressed: () async {
+                await multiDevice.disconnectAll();
+                onDisconnectNirs?.call();
+                await multiLsl.disconnect();
+              },
+            ),
           ] else ...[
             ElevatedButton.icon(
-              onPressed: onOpenConnectDialog ?? () => showDeviceConnectionDialog(context),
-              icon: const Icon(Icons.link, size: 16),
-              label: const Text('Connect'),
+              onPressed: anythingConnecting
+                  ? () => multiDevice.disconnectAll()
+                  : onOpenConnectDialog ??
+                        () => showDeviceConnectionDialog(context),
+              icon: Icon(
+                anythingConnecting ? Icons.close : Icons.link,
+                size: 16,
+              ),
+              label: Text(anythingConnecting ? 'Cancel' : 'Connect'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF3B82F6),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 minimumSize: Size.zero,
               ),
             ),
@@ -132,10 +185,7 @@ class ConnectionStatusBar extends StatelessWidget {
 }
 
 void showDeviceConnectionDialog(BuildContext context) {
-  showDialog(
-    context: context,
-    builder: (_) => const DeviceConnectionDialog(),
-  );
+  showDialog(context: context, builder: (_) => const DeviceConnectionDialog());
 }
 
 class DeviceConnectionDialog extends StatelessWidget {
@@ -144,47 +194,91 @@ class DeviceConnectionDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final eegService = context.watch<AcquisitionService>();
+    final multiLsl = context.watch<MultiStreamLslService>();
+    final multiDevice = context.watch<MultiDeviceAcquisitionService>();
+    final settings = context.watch<SettingsService>();
+    final configuredLslStreams = settings.deviceProfiles
+        .where((device) => device.enabled && device.transport.name == 'lsl')
+        .expand((device) => device.enabledStreams)
+        .length;
 
     return AlertDialog(
       backgroundColor: const Color(0xFF1E293B),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Text('Connect Devices', style: TextStyle(color: Colors.white)),
-      content: SizedBox(
-        width: 400,
+      title: const Text(
+        'Connect Devices',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Bluetooth EEG (xAMP-L10 / EpiDome)', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+              const Text(
+                'Bluetooth EEG/PPG (xAMP-L10 / EpiDome / ORBIT)',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.bluetooth_searching, color: Color(0xFF14B8A6)),
-                title: const Text('Scan & Auto-Connect BLE', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Default target: AXXSPU00002', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                leading: const Icon(
+                  Icons.bluetooth_searching,
+                  color: Color(0xFF14B8A6),
+                ),
+                title: const Text(
+                  'Scan for xAMP or ORBIT',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Scan, then select each intended device below',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
                 trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF14B8A6), foregroundColor: Colors.black),
-                  onPressed: () {
-                    eegService.scan(autoConnect: true);
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('Scan & Connect'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF14B8A6),
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: multiDevice.isScanning
+                      ? null
+                      : () => multiDevice.scan(),
+                  child: Text(multiDevice.isScanning ? 'Scanning…' : 'Scan'),
                 ),
               ),
               const Divider(color: Colors.white12, height: 24),
-              const Text('Bench Testing & Simulation', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+              const Text(
+                'Bench Testing & Simulation',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.waves, color: Color(0xFF38BDF8)),
-                title: const Text('Synthetic EEG Mode (16-ch)', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Simulates 16-ch EpiDome waveforms at 250 Hz', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                title: const Text(
+                  'Synthetic EEG Mode (16-ch)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Simulates 16-ch EpiDome waveforms at 250 Hz',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
                 trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8), foregroundColor: Colors.black),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38BDF8),
+                    foregroundColor: Colors.black,
+                  ),
                   onPressed: () {
                     eegService.addSyntheticDevice();
-                    final synth = eegService.discoveredDevices.firstWhere((d) => d.kind == DeviceKind.synthetic);
+                    final synth = eegService.discoveredDevices.firstWhere(
+                      (d) => d.kind == DeviceKind.synthetic,
+                    );
                     eegService.connect(synth);
                     Navigator.of(context).pop();
                   },
@@ -192,39 +286,166 @@ class DeviceConnectionDialog extends StatelessWidget {
                 ),
               ),
               const Divider(color: Colors.white12, height: 24),
-              const Text('WiFi fNIRS (NIRSport 2 / Aurora LSL)', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+              const Text(
+                'Configured WiFi / LSL Streams',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.wifi, color: Color(0xFFB57BFF)),
-                title: const Text('Connect via WiFi LSL', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Resolves stream type fNIRS / NIRS', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                title: Text(
+                  configuredLslStreams == 0
+                      ? 'No enabled LSL profiles'
+                      : 'Connect $configuredLslStreams configured stream(s)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Supports EEG, EOG, EMG, fNIRS, physiological, and marker streams',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
                 trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFB57BFF), foregroundColor: Colors.black),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('Connect'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB57BFF),
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed:
+                      configuredLslStreams == 0 ||
+                          multiLsl.state == AcquisitionState.connecting
+                      ? null
+                      : () {
+                          multiLsl.connectConfigured(settings.deviceProfiles);
+                          Navigator.of(context).pop();
+                        },
+                  child: Text(
+                    multiLsl.state == AcquisitionState.connecting
+                        ? 'Resolving…'
+                        : 'Connect',
+                  ),
                 ),
               ),
-              if (eegService.discoveredDevices.where((d) => d.kind != DeviceKind.synthetic).isNotEmpty) ...[
+              if (multiDevice.discoveredDevices
+                  .where((d) => d.kind != DeviceKind.synthetic)
+                  .isNotEmpty) ...[
                 const Divider(color: Colors.white12, height: 24),
-                const Text('Discovered Devices', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...eegService.discoveredDevices.where((d) => d.kind != DeviceKind.synthetic).map((device) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(device.isBle ? Icons.bluetooth : Icons.devices_other, color: const Color(0xFF14B8A6)),
-                  title: Text(device.name, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('${device.id} • ${device.kind.name.toUpperCase()}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                  trailing: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF14B8A6), foregroundColor: Colors.black),
-                    onPressed: () {
-                      eegService.connect(device);
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Connect'),
+                const Text(
+                  'Discovered Devices',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.bold,
                   ),
-                )),
+                ),
+                const SizedBox(height: 8),
+                ...multiDevice.discoveredDevices
+                    .where((d) => d.kind != DeviceKind.synthetic)
+                    .map(
+                      (device) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          device.isBle ? Icons.bluetooth : Icons.devices_other,
+                          color: const Color(0xFF14B8A6),
+                        ),
+                        title: Text(
+                          device.name,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          '${device.id} • ${device.kind.name.toUpperCase()}',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                        trailing: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF14B8A6),
+                            foregroundColor: Colors.black,
+                          ),
+                          onPressed:
+                              multiDevice.isDeviceConnectedOrConnecting(
+                                device.id,
+                              )
+                              ? null
+                              : () => multiDevice.connect(device),
+                          child: Text(
+                            multiDevice.isDeviceConnectedOrConnecting(device.id)
+                                ? 'Connected'
+                                : 'Connect',
+                          ),
+                        ),
+                      ),
+                    ),
+              ],
+              if (eegService.connectedDeviceId != null ||
+                  multiDevice.secondaryServices.isNotEmpty) ...[
+                const Divider(color: Colors.white12, height: 24),
+                const Text(
+                  'Direct Device Connections',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (eegService.connectedDeviceId != null)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      eegService.isStreamReady
+                          ? Icons.graphic_eq
+                          : Icons.bluetooth_searching,
+                      color: eegService.isStreamReady
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFFBBF24),
+                    ),
+                    title: Text(
+                      eegService.connectedDeviceLabel,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      eegService.isStreamReady
+                          ? 'Streaming validated samples'
+                          : eegService.currentState.name,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Disconnect this device',
+                      icon: const Icon(
+                        Icons.link_off,
+                        color: Color(0xFFEF4444),
+                      ),
+                      onPressed: eegService.disconnect,
+                    ),
+                  ),
+                ...multiDevice.secondaryDevices.entries.map(
+                  (entry) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.bluetooth_connected,
+                      color: Color(0xFF10B981),
+                    ),
+                    title: Text(
+                      entry.value.connectedDeviceLabel,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      entry.value.isStreamReady
+                          ? 'Streaming validated samples'
+                          : entry.value.currentState.name,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Disconnect this device',
+                      icon: const Icon(
+                        Icons.link_off,
+                        color: Color(0xFFEF4444),
+                      ),
+                      onPressed: () => multiDevice.disconnect(entry.key),
+                    ),
+                  ),
+                ),
               ],
             ],
           ),
@@ -269,7 +490,11 @@ class QuickModuleSwitcherModal extends StatelessWidget {
                 SizedBox(width: 10),
                 Text(
                   'Quick Module Switcher',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -337,11 +562,23 @@ class QuickModuleSwitcherModal extends StatelessWidget {
     return ListTile(
       leading: Container(
         padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: Icon(icon, color: color, size: 22),
       ),
-      title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+      title: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(color: Colors.white54, fontSize: 12),
+      ),
       onTap: () {
         Navigator.of(context).pop(); // Close switcher modal
         final session = context.read<SessionManager>();
@@ -349,7 +586,9 @@ class QuickModuleSwitcherModal extends StatelessWidget {
           if (isHome) {
             Navigator.of(context).popUntil((route) => route.isFirst);
           } else if (routeName != null) {
-            Navigator.of(context).pushNamedAndRemoveUntil(routeName, (route) => route.isFirst);
+            Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil(routeName, (route) => route.isFirst);
           }
         }
 
@@ -358,7 +597,10 @@ class QuickModuleSwitcherModal extends StatelessWidget {
             context: context,
             builder: (ctx) => AlertDialog(
               backgroundColor: const Color(0xFF1E293B),
-              title: const Text('⚠️ Active Recording', style: TextStyle(color: Color(0xFFEF4444))),
+              title: const Text(
+                '⚠️ Active Recording',
+                style: TextStyle(color: Color(0xFFEF4444)),
+              ),
               content: Text(
                 'An EEG recording is currently active (${session.activeModule?.displayName ?? "Unknown"}). Do you want to stop and save before switching modules?',
                 style: const TextStyle(color: Colors.white70),
@@ -366,17 +608,26 @@ class QuickModuleSwitcherModal extends StatelessWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white54),
+                  ),
                 ),
                 TextButton(
                   onPressed: () {
                     Navigator.of(ctx).pop();
                     doSwitch();
                   },
-                  child: const Text('Switch Without Stopping', style: TextStyle(color: Color(0xFFF59E0B))),
+                  child: const Text(
+                    'Switch Without Stopping',
+                    style: TextStyle(color: Color(0xFFF59E0B)),
+                  ),
                 ),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: () {
                     session.stopRecording();
                     Navigator.of(ctx).pop();
@@ -394,4 +645,3 @@ class QuickModuleSwitcherModal extends StatelessWidget {
     );
   }
 }
-

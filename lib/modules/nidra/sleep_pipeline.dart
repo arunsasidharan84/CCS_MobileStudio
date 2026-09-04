@@ -15,11 +15,15 @@ class SleepPipeline {
   SleepPipeline({
     required double sampleRate,
     String? modelPath,
+    this.signalChannelIndex = 0,
+    this.referenceChannelIndex,
     required void Function(bool usesModel) onInitialized,
   }) {
     _spawnIsolate(sampleRate, modelPath, onInitialized);
   }
 
+  final int signalChannelIndex;
+  final int? referenceChannelIndex;
   Isolate? _isolate;
   SendPort? _toIsolatePort;
   final _receivePort = ReceivePort();
@@ -76,8 +80,18 @@ class SleepPipeline {
   }
 
   void push(EegSample sample) {
-    if (sample.channels.isEmpty) return;
-    final frontalVal = sample.channels.first;
+    if (signalChannelIndex < 0 ||
+        signalChannelIndex >= sample.channels.length) {
+      return;
+    }
+    var frontalVal = sample.channels[signalChannelIndex];
+    final reference = referenceChannelIndex;
+    if (reference != null &&
+        reference >= 0 &&
+        reference < sample.channels.length &&
+        reference != signalChannelIndex) {
+      frontalVal -= sample.channels[reference];
+    }
     final cmd = _PushSampleCommand(frontalVal);
     if (_toIsolatePort != null) {
       _toIsolatePort!.send(cmd);

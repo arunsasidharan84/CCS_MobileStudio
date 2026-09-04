@@ -10,10 +10,14 @@ import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/eeg_sample.dart';
+import '../models/device_profile.dart';
+import '../models/signal_stream_sample.dart';
 import '../services/alert_service.dart';
 import '../services/settings_service.dart';
+import 'ads1299_scaling.dart';
+import 'orbit_packet_decoder.dart';
 
-enum DeviceKind { orbit, epidome, synthetic }
+enum DeviceKind { orbit, epidome, generic, synthetic }
 
 enum AcquisitionState { disconnected, scanning, connecting, streaming }
 
@@ -23,12 +27,14 @@ class EegDevice {
     required this.id,
     required this.kind,
     required this.isBle,
+    this.profileId,
   });
 
   final String name;
   final String id;
   final DeviceKind kind;
   final bool isBle;
+  final String? profileId;
 
   @override
   bool operator ==(Object other) {
@@ -73,10 +79,10 @@ class AcquisitionService extends ChangeNotifier {
   static const int _epidomeChannelCount = 16;
   static const int _epidomeFrameLength =
       _epidomeFrameHeaderLength + _epidomeChannelCount * 3;
-  static const double _ads1299UvPerCount = -0.0224;
 
   final _state = StreamController<AcquisitionState>.broadcast();
   final _samples = StreamController<EegSample>.broadcast();
+  final _streamSamples = StreamController<SignalStreamSample>.broadcast();
   final _devices = StreamController<List<EegDevice>>.broadcast();
 
   StreamSubscription<ble.BluetoothConnectionState>? _bleConnectionStateSub;
@@ -86,10 +92,11 @@ class AcquisitionService extends ChangeNotifier {
   final List<int> _classicBuffer = [];
   final List<int> _bleBuffer = [];
   String _orbitTextBuffer = '';
+  int _orbitAsciiSampleIndex = 0;
+  DateTime? _lastOrbitEegTimestamp;
+  DateTime? _lastOrbitPpgTimestamp;
   final _random = Random();
-  double _ppgX1 = 0.0;
-  double _ppgY1 = 0.0;
-  double _ppgSmooth = 0.0;
+  final OrbitPacketDecoder _orbitDecoder = OrbitPacketDecoder();
 
   StreamSubscription<classic.BluetoothDiscoveryResult>? _classicScanSub;
   StreamSubscription<List<ble.ScanResult>>? _bleScanSub;
@@ -102,7 +109,21 @@ class AcquisitionService extends ChangeNotifier {
   EegDevice? _lastConnectedDevice;
   bool _autoReconnectEnabled = false;
   Timer? _reconnectTimer;
+  bool _reconnectInProgress = false;
+  bool _handlingUnexpectedDisconnect = false;
+  bool _hasEverStreamed = false;
+  int _deliveredSampleCount = 0;
+  DateTime? _rateWindowStarted;
+  int _rateWindowSamples = 0;
+  int _rateWindowNotifications = 0;
+  int _rateWindowBytes = 0;
+  double? _deliveredSampleRate;
+  final List<int> _xampRailRuns = List.filled(_epidomeChannelCount, 0);
+  final Set<int> _xampSaturatedChannels = {};
+  Completer<void>? _firstSampleCompleter;
+  bool _connectionCancelled = false;
   AlertService? _alertService;
+  SettingsService? _settings;
 
   void updateAlertService(AlertService? alertService) {
     _alertService = alertService;
@@ -110,6 +131,7 @@ class AcquisitionService extends ChangeNotifier {
 
   void updateSettings(SettingsService? settings) {
     if (settings != null) {
+      _settings = settings;
       xampPrefix = settings.xampPrefix;
       orbitPrefix = settings.orbitPrefix;
       reconnectMaxAttempts = settings.maxReconnectAttempts;
@@ -125,83 +147,206 @@ class AcquisitionService extends ChangeNotifier {
 
   Stream<AcquisitionState> get state => _state.stream;
   Stream<EegSample> get samples => _samples.stream;
+  Stream<SignalStreamSample> get streamSamples => _streamSamples.stream;
   Stream<List<EegDevice>> get devices => _devices.stream;
   List<EegDevice> get discoveredDevices => List.unmodifiable(_seenDevices);
   AcquisitionState get currentState => _currentState;
+  String get connectedDeviceLabel => _lastConnectedDevice?.name ?? 'EEG';
+  String? get connectedDeviceId => _lastConnectedDevice?.id;
+  DeviceKind? get connectedDeviceKind => _lastConnectedDevice?.kind;
+  DeviceProfile? get connectedDeviceProfile => _activeProfile;
+  bool get hasReceivedSamples => _deliveredSampleCount > 0;
+  bool get isStreamReady =>
+      _currentState == AcquisitionState.streaming && hasReceivedSamples;
+  bool get isRecovering =>
+      _reconnectInProgress || (_reconnectTimer?.isActive ?? false);
+  double? get deliveredSampleRate => _deliveredSampleRate;
+  List<String> get adcSaturatedChannelLabels {
+    final labels = displayChannelLabels(_epidomeChannelCount);
+    return _xampSaturatedChannels
+        .map(
+          (index) => index < labels.length ? labels[index] : 'Ch ${index + 1}',
+        )
+        .toList(growable: false);
+  }
 
-  double get sampleRate => switch (_lastConnectedDevice?.kind) {
-    DeviceKind.epidome => 250.0,
-    DeviceKind.orbit => 250.0,
-    DeviceKind.synthetic => 250.0,
-    null => 250.0,
-  };
+  DeviceProfile? get _activeProfile {
+    final id = _lastConnectedDevice?.profileId;
+    if (id == null) return null;
+    return _settings?.profileById(id);
+  }
 
-  int get channelCount => switch (_lastConnectedDevice?.kind) {
-    DeviceKind.epidome => 16,
-    DeviceKind.orbit => 3,
-    DeviceKind.synthetic => 16,
-    null => 16,
-  };
+  SignalStreamProfile? get primaryRecordingStream {
+    final streams = _activeProfile?.enabledStreams.toList() ?? const [];
+    for (final stream in streams) {
+      if (stream.signalType == SignalType.eeg ||
+          stream.signalType == SignalType.ecg) {
+        return stream;
+      }
+    }
+    return streams.isEmpty ? null : streams.first;
+  }
 
-  List<String> get channelLabels => switch (_lastConnectedDevice?.kind) {
-    DeviceKind.epidome => const [
-      'Fp1',
-      'Fp2',
-      'F3',
-      'F4',
-      'C3',
-      'Cz',
-      'C4',
-      'P3',
-      'Pz',
-      'P4',
-      'O1',
-      'Oz',
-      'O2',
-      'F7',
-      'F8',
-      'T3',
-    ],
-    DeviceKind.orbit => const ['Fp1', 'Fp2', 'PPG'],
-    DeviceKind.synthetic => const [
-      'Fp1',
-      'Fp2',
-      'F3',
-      'F4',
-      'C3',
-      'Cz',
-      'C4',
-      'P3',
-      'Pz',
-      'P4',
-      'O1',
-      'Oz',
-      'O2',
-      'F7',
-      'F8',
-      'T3',
-    ],
-    null => const [
-      'Fp1',
-      'Fp2',
-      'F3',
-      'F4',
-      'C3',
-      'Cz',
-      'C4',
-      'P3',
-      'Pz',
-      'P4',
-      'O1',
-      'Oz',
-      'O2',
-      'F7',
-      'F8',
-      'T3',
-    ],
-  };
+  double get sampleRate =>
+      primaryRecordingStream?.sampleRate ??
+      switch (_lastConnectedDevice?.kind) {
+        DeviceKind.epidome => 250.0,
+        DeviceKind.orbit => 250.0,
+        DeviceKind.generic => 250.0,
+        DeviceKind.synthetic => 250.0,
+        null => 250.0,
+      };
+
+  int get channelCount {
+    if (_lastConnectedDevice?.kind == DeviceKind.orbit &&
+        (_settings?.combineCompatibleStreams ?? true)) {
+      return channelLabels.length;
+    }
+    return primaryRecordingStream?.channelCount ??
+        switch (_lastConnectedDevice?.kind) {
+          DeviceKind.epidome => 16,
+          DeviceKind.orbit => 2,
+          DeviceKind.generic => 1,
+          DeviceKind.synthetic => 16,
+          null => 16,
+        };
+  }
+
+  List<String> get channelLabels {
+    final profile = _activeProfile;
+    if (profile != null) {
+      return profile.enabledStreams
+          .expand((stream) => stream.channelLabels)
+          .toList(growable: false);
+    }
+    return switch (_lastConnectedDevice?.kind) {
+      DeviceKind.epidome => const [
+        'Fp1',
+        'Fp2',
+        'F3',
+        'F4',
+        'C3',
+        'Cz',
+        'C4',
+        'P3',
+        'Pz',
+        'P4',
+        'O1',
+        'Oz',
+        'O2',
+        'F7',
+        'F8',
+        'T3',
+      ],
+      DeviceKind.orbit => const ['AF7', 'AF8', 'PPG'],
+      DeviceKind.synthetic => const [
+        'Fp1',
+        'Fp2',
+        'F3',
+        'F4',
+        'C3',
+        'Cz',
+        'C4',
+        'P3',
+        'Pz',
+        'P4',
+        'O1',
+        'Oz',
+        'O2',
+        'F7',
+        'F8',
+        'T3',
+      ],
+      DeviceKind.generic => const ['Ch 1'],
+      null => const [
+        'Fp1',
+        'Fp2',
+        'F3',
+        'F4',
+        'C3',
+        'Cz',
+        'C4',
+        'P3',
+        'Pz',
+        'P4',
+        'O1',
+        'Oz',
+        'O2',
+        'F7',
+        'F8',
+        'T3',
+      ],
+    };
+  }
+
+  /// Returns configured labels without discarding them when the live decoder
+  /// exposes more channels than the saved profile.
+  List<String> displayChannelLabels(int liveChannelCount) {
+    final configured = channelLabels;
+    return List<String>.generate(liveChannelCount, (index) {
+      if (index < configured.length && configured[index].trim().isNotEmpty) {
+        return configured[index].trim();
+      }
+      return 'Ch ${index + 1}';
+    }, growable: false);
+  }
+
+  List<SignalType> displayChannelTypes(int liveChannelCount) {
+    final configured =
+        _activeProfile?.enabledStreams
+            .expand((stream) => stream.channelTypes)
+            .toList(growable: false) ??
+        const <SignalType>[];
+    final labels = displayChannelLabels(liveChannelCount);
+    return List<SignalType>.generate(liveChannelCount, (index) {
+      if (index < configured.length) return configured[index];
+      return SignalStreamProfile.inferChannelType(labels[index]);
+    }, growable: false);
+  }
+
+  /// Uses saved channel configuration only when it belongs to the active
+  /// device shape. This prevents a 16-channel xAMP configuration from naming
+  /// ORBIT's third channel as an EEG electrode instead of PPG.
+  List<String> recordingChannelLabels(List<String>? configured) {
+    if (_lastConnectedDevice?.kind == DeviceKind.orbit &&
+        (_settings?.combineCompatibleStreams ?? true)) {
+      return List<String>.of(channelLabels);
+    }
+    if (configured != null && configured.length == channelCount) {
+      return List<String>.of(configured);
+    }
+    final primary = primaryRecordingStream;
+    return primary == null
+        ? List<String>.of(channelLabels.take(channelCount))
+        : List<String>.of(primary.channelLabels);
+  }
+
+  List<bool> recordingEnabledChannels(List<bool>? configured) {
+    final profileEnabled = _activeProfile?.enabledStreams
+        .expand((stream) => stream.channelEnabled)
+        .toList(growable: false);
+    if (profileEnabled != null && profileEnabled.length == channelCount) {
+      return profileEnabled;
+    }
+    if (_lastConnectedDevice?.kind == DeviceKind.orbit &&
+        (_settings?.combineCompatibleStreams ?? true)) {
+      final result = List<bool>.filled(channelCount, true);
+      if (configured != null) {
+        for (var i = 0; i < configured.length && i < 2; i++) {
+          result[i] = configured[i];
+        }
+      }
+      return result;
+    }
+    if (configured != null && configured.length == channelCount) {
+      return List<bool>.of(configured);
+    }
+    return List<bool>.filled(channelCount, true);
+  }
 
   Future<void> requestPermissions() async {
+    if (!Platform.isAndroid) return;
+
     await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
@@ -228,18 +373,21 @@ class AcquisitionService extends ChangeNotifier {
         final name = result.device.platformName.isNotEmpty
             ? result.device.platformName
             : result.advertisementData.advName;
+        final profile = _matchingProfile(
+          name,
+          result.device.remoteId.toString(),
+          ConnectionTransport.bluetoothLe,
+        );
+        if (profile == null) continue;
         final device = EegDevice(
           name: name.isEmpty ? 'Unknown BLE device' : name,
           id: result.device.remoteId.toString(),
-          kind: _kindForName(name),
+          kind: _kindForProfile(profile),
           isBle: true,
+          profileId: profile.id,
         );
         _addDevice(device);
-        final upperName = name.toUpperCase();
-        if (autoConnect &&
-            (_matchesXampPrefix(name, device.id) ||
-                upperName.contains('EPIDOME') ||
-                upperName.contains('ORBIT'))) {
+        if (autoConnect && profile.autoConnect) {
           debugPrint(
             '[AcquisitionService] Found BLE target device $name (${device.id}). Auto-connecting!',
           );
@@ -250,19 +398,29 @@ class AcquisitionService extends ChangeNotifier {
     });
 
     await _classicScanSub?.cancel();
-    _classicScanSub = classic.FlutterBluetoothSerial.instance
-        .startDiscovery()
-        .listen((result) {
-          final name = result.device.name ?? 'Unknown classic device';
-          if (_kindForName(name) != DeviceKind.epidome) return;
-          final device = EegDevice(
-            name: name,
-            id: result.device.address,
-            kind: _kindForName(name),
-            isBle: false,
-          );
-          _addDevice(device);
-        });
+    if (Platform.isAndroid) {
+      _classicScanSub = classic.FlutterBluetoothSerial.instance
+          .startDiscovery()
+          .listen((result) {
+            final name = result.device.name ?? 'Unknown classic device';
+            final profile = _matchingProfile(
+              name,
+              result.device.address,
+              ConnectionTransport.bluetoothClassic,
+            );
+            if (profile == null) return;
+            final device = EegDevice(
+              name: name,
+              id: result.device.address,
+              kind: _kindForProfile(profile),
+              isBle: false,
+              profileId: profile.id,
+            );
+            _addDevice(device);
+          });
+    } else {
+      _classicScanSub = null;
+    }
 
     await ble.FlutterBluePlus.startScan(
       timeout: const Duration(seconds: 20),
@@ -288,58 +446,92 @@ class AcquisitionService extends ChangeNotifier {
     }
   }
 
-  Future<void> connect(EegDevice device) async {
-    if ((_currentState == AcquisitionState.streaming ||
-            _currentState == AcquisitionState.connecting) &&
-        _lastConnectedDevice == device) {
+  Future<bool> connect(
+    EegDevice device, {
+    bool reconnectAttempt = false,
+  }) async {
+    if (isStreamReady && _lastConnectedDevice == device) {
       debugPrint(
-        '[AcquisitionService] Already connected/connecting to ${device.name}! Skipping redundant connect call.',
+        '[AcquisitionService] ${device.name} is already streaming valid samples.',
       );
-      return;
+      return true;
+    }
+    if (_currentState == AcquisitionState.connecting) {
+      debugPrint(
+        '[AcquisitionService] A connection is already in progress; ignoring '
+        'duplicate request for ${device.name}.',
+      );
+      return false;
+    }
+    if (!reconnectAttempt) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      _reconnectAttempts = 0;
+      _autoReconnectEnabled = true;
+      _hasEverStreamed = false;
     }
     await stopScan();
     await _cleanupSockets();
 
-    final isEeg =
-        device.kind == DeviceKind.epidome || device.kind == DeviceKind.orbit;
-    final targetDevice = isEeg
-        ? EegDevice(
-            name: device.name,
-            id: device.id,
-            kind: device.kind,
-            isBle: true,
-          )
-        : device;
+    final targetDevice = device;
 
     if (Platform.isAndroid && targetDevice.isBle) {
       await Future.delayed(const Duration(milliseconds: 500));
     }
     _setState(AcquisitionState.connecting);
+    _deliveredSampleCount = 0;
+    _rateWindowStarted = null;
+    _rateWindowSamples = 0;
+    _rateWindowNotifications = 0;
+    _rateWindowBytes = 0;
+    _deliveredSampleRate = null;
+    _resetXampSaturation();
+    _connectionCancelled = false;
+    _firstSampleCompleter = Completer<void>();
 
     try {
       _lastConnectedDevice = targetDevice;
       _autoReconnectEnabled = true;
-      _reconnectAttempts = 0;
       if (targetDevice.kind == DeviceKind.synthetic) {
         _startSynthetic();
       } else if (targetDevice.isBle) {
         await _connectBle(targetDevice);
+      } else if (!Platform.isAndroid) {
+        throw UnsupportedError(
+          'Bluetooth Classic device profiles are supported on Android only. '
+          'Use a BLE or LSL device profile on desktop.',
+        );
       } else {
         await _connectClassic(targetDevice);
       }
+      await _firstSampleCompleter!.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TimeoutException(
+          '${targetDevice.name} connected but sent no valid signal frames.',
+        ),
+      );
+      if (_connectionCancelled) {
+        throw StateError('Connection cancelled by user.');
+      }
       _startWatchdog();
       _alertService?.stopBeeping();
+      return isStreamReady;
     } catch (e) {
-      debugPrint(
-        '[AcquisitionService] Connect error: $e. Initiating auto-reconnect & warning beep...',
-      );
-      _handleUnexpectedDisconnect();
+      debugPrint('[AcquisitionService] Connect error for ${device.name}: $e');
+      await _cleanupStaleConnection();
+      _setState(AcquisitionState.disconnected);
+      if (!reconnectAttempt) {
+        _scheduleReconnect();
+      }
+      return false;
     }
   }
 
   void _startWatchdog() {
     _stopWatchdog();
-    _lastSampleTime = DateTime.now().add(Duration(seconds: disconnectionTimeoutSeconds));
+    _lastSampleTime = DateTime.now().add(
+      Duration(seconds: disconnectionTimeoutSeconds),
+    );
     _watchdogTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (_currentState == AcquisitionState.streaming &&
           _lastConnectedDevice?.kind != DeviceKind.synthetic) {
@@ -361,21 +553,32 @@ class AcquisitionService extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _autoReconnectEnabled = false;
+    _connectionCancelled = true;
+    if (!(_firstSampleCompleter?.isCompleted ?? true)) {
+      _firstSampleCompleter!.complete();
+    }
     _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _stopWatchdog();
     _alertService?.stopBeeping();
     await _cleanupSockets();
+    _lastConnectedDevice = null;
+    _deliveredSampleCount = 0;
+    _firstSampleCompleter = null;
+    _hasEverStreamed = false;
+    _handlingUnexpectedDisconnect = false;
   }
 
   Future<void> _cleanupSockets() async {
     _syntheticTimer?.cancel();
     _syntheticTimer = null;
     await _classicInputSub?.cancel();
+    _classicInputSub = null;
     await _classicConnection?.close();
     _classicConnection = null;
     await _bleNotifySub?.cancel();
+    _bleNotifySub = null;
     await _bleConnectionStateSub?.cancel();
     _bleConnectionStateSub = null;
     try {
@@ -385,8 +588,12 @@ class AcquisitionService extends ChangeNotifier {
     _classicBuffer.clear();
     _bleBuffer.clear();
     _orbitTextBuffer = '';
-    if (_currentState != AcquisitionState.disconnected &&
-        _currentState != AcquisitionState.connecting) {
+    _orbitAsciiSampleIndex = 0;
+    _lastOrbitEegTimestamp = null;
+    _lastOrbitPpgTimestamp = null;
+    _orbitDecoder.reset();
+    _resetXampSaturation();
+    if (_currentState != AcquisitionState.disconnected) {
       _setState(AcquisitionState.disconnected);
     }
   }
@@ -396,6 +603,7 @@ class AcquisitionService extends ChangeNotifier {
     unawaited(disconnect());
     _state.close();
     _samples.close();
+    _streamSamples.close();
     _devices.close();
     _maxRetriesReachedController.close();
     super.dispose();
@@ -405,22 +613,30 @@ class AcquisitionService extends ChangeNotifier {
     if (!_autoReconnectEnabled || _lastConnectedDevice == null) {
       return;
     }
-    if (_reconnectTimer != null && _reconnectTimer!.isActive) {
+    if (_handlingUnexpectedDisconnect ||
+        _reconnectInProgress ||
+        (_reconnectTimer?.isActive ?? false)) {
+      _stopWatchdog();
       debugPrint(
-        '[AcquisitionService] Reconnect timer already active, ignoring unexpected disconnect event.',
+        '[AcquisitionService] Recovery is already active; ignoring duplicate '
+        'disconnect/watchdog event.',
       );
       return;
     }
+    _handlingUnexpectedDisconnect = true;
     debugPrint(
       '[AcquisitionService] Unexpected disconnect / watchdog timeout detected!',
     );
     _stopWatchdog();
     _setState(AcquisitionState.disconnected);
-    if (reconnectBeepEnabled) {
+    // A failed initial connection must not alarm the participant. The warning
+    // is reserved for loss of a stream that previously delivered valid EEG.
+    if (reconnectBeepEnabled && _hasEverStreamed) {
       _alertService?.startBeeping();
     }
     _cleanupStaleConnection().then((_) {
-      _startReconnectTimer();
+      _handlingUnexpectedDisconnect = false;
+      _scheduleReconnect();
     });
   }
 
@@ -433,6 +649,11 @@ class AcquisitionService extends ChangeNotifier {
     _bleConnectionStateSub = null;
     _classicBuffer.clear();
     _bleBuffer.clear();
+    _orbitTextBuffer = '';
+    _lastOrbitEegTimestamp = null;
+    _lastOrbitPpgTimestamp = null;
+    _orbitDecoder.reset();
+    _resetXampSaturation();
     try {
       _classicConnection?.dispose();
     } catch (_) {}
@@ -443,22 +664,25 @@ class AcquisitionService extends ChangeNotifier {
     _bleDevice = null;
   }
 
-  void _startReconnectTimer() {
+  void _scheduleReconnect() {
+    if (!_autoReconnectEnabled ||
+        _lastConnectedDevice == null ||
+        _reconnectInProgress ||
+        (_reconnectTimer?.isActive ?? false)) {
+      return;
+    }
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer.periodic(Duration(seconds: reconnectIntervalSec), (
-      timer,
-    ) async {
+    _reconnectTimer = Timer(Duration(seconds: reconnectIntervalSec), () async {
+      _reconnectTimer = null;
+      if (_lastConnectedDevice == null || !_autoReconnectEnabled) {
+        _alertService?.stopBeeping();
+        return;
+      }
       _reconnectAttempts++;
       if (reconnectMaxAttempts > 0 &&
           _reconnectAttempts > reconnectMaxAttempts) {
         _stopReconnectTimer();
-        // Keep beeping to alert the user until a successful reconnection happens or they exit!
         _maxRetriesReachedController.add(null);
-        return;
-      }
-      if (_lastConnectedDevice == null || !_autoReconnectEnabled) {
-        _stopReconnectTimer();
-        _alertService?.stopBeeping();
         return;
       }
 
@@ -468,16 +692,17 @@ class AcquisitionService extends ChangeNotifier {
         'connecting to ${_lastConnectedDevice!.name}',
       );
 
-      try {
-        await connect(_lastConnectedDevice!);
+      _reconnectInProgress = true;
+      final target = _lastConnectedDevice!;
+      final success = await connect(target, reconnectAttempt: true);
+      _reconnectInProgress = false;
+      if (success) {
         debugPrint('[AcquisitionService] Auto-reconnect successful!');
+        _reconnectAttempts = 0;
         _alertService?.stopBeeping();
-      } catch (e) {
-        debugPrint('[AcquisitionService] Auto-reconnect failed: $e');
-        _setState(AcquisitionState.disconnected);
-        if (reconnectBeepEnabled) {
-          _alertService?.startBeeping();
-        }
+      } else {
+        debugPrint('[AcquisitionService] Auto-reconnect did not yield EEG.');
+        _scheduleReconnect();
       }
     });
   }
@@ -494,6 +719,7 @@ class AcquisitionService extends ChangeNotifier {
         id: 'synthetic',
         kind: DeviceKind.synthetic,
         isBle: false,
+        profileId: 'synthetic',
       ),
     );
   }
@@ -536,16 +762,11 @@ class AcquisitionService extends ChangeNotifier {
     }
     _classicInputSub = _classicConnection!.input?.listen(
       (data) {
-        if (device.kind == DeviceKind.epidome) {
-          _parseEpiDomeBytes(Uint8List.fromList(data));
-        } else {
-          _parseAsciiOrbit(Uint8List.fromList(data));
-        }
+        _parseDeviceBytes(device, Uint8List.fromList(data));
       },
       onDone: () => _handleUnexpectedDisconnect(),
       onError: (e) => _handleUnexpectedDisconnect(),
     );
-    _setState(AcquisitionState.streaming);
   }
 
   Future<void> _connectBle(EegDevice device) async {
@@ -638,7 +859,7 @@ class AcquisitionService extends ChangeNotifier {
         'notify=${characteristic.properties.notify || characteristic.properties.indicate}',
       );
     }
-    final pair = device.kind == DeviceKind.epidome
+    final pair = _protocolFor(device) == DeviceProtocol.xampBinary
         ? _selectEpiDomeCharacteristics(characteristics)
         : _selectOrbitCharacteristics(characteristics);
     final notify = pair?.notify;
@@ -646,28 +867,48 @@ class AcquisitionService extends ChangeNotifier {
     if (notify == null) {
       throw StateError('No BLE notify characteristic found for ${device.name}');
     }
+    await _bleNotifySub?.cancel();
+    _bleNotifySub = notify.onValueReceived.listen((data) {
+      _trackTransportChunk(data.length);
+      _parseDeviceBytes(device, Uint8List.fromList(data), bleSource: true);
+    });
     await notify.setNotifyValue(true);
     if (write != null) {
-      final command = device.kind == DeviceKind.epidome
+      final configuredCommand = _profileFor(device)?.startCommand ?? '';
+      final command = configuredCommand.isNotEmpty
+          ? utf8.encode(configuredCommand)
+          : _protocolFor(device) == DeviceProtocol.xampBinary
           ? [0x72, 0x78, 0x73, 0x37]
           : utf8.encode('9');
       final withoutResponse =
           write.properties.writeWithoutResponse && !write.properties.write;
       await write.write(command, withoutResponse: withoutResponse);
     }
-    _bleNotifySub = notify.onValueReceived.listen((data) {
-      if (device.kind == DeviceKind.epidome) {
-        _parseEpiDomeBytes(Uint8List.fromList(data), bleSource: true);
-      } else {
-        _parseOrbitBleBytes(data);
-      }
-    });
-    _setState(AcquisitionState.streaming);
-    _alertService?.stopBeeping();
+  }
+
+  void _parseDeviceBytes(
+    EegDevice device,
+    Uint8List data, {
+    bool bleSource = false,
+  }) {
+    switch (_protocolFor(device)) {
+      case DeviceProtocol.xampBinary:
+        _parseEpiDomeBytes(data, bleSource: bleSource);
+      case DeviceProtocol.orbitJson:
+        if (bleSource) {
+          _parseOrbitBleBytes(data);
+        } else {
+          _parseAsciiOrbit(data, bleSource: false);
+        }
+      case DeviceProtocol.delimitedText:
+        _parseDelimitedText(data, bleSource: bleSource);
+      case DeviceProtocol.synthetic:
+      case DeviceProtocol.lsl:
+        break;
+    }
   }
 
   void _parseEpiDomeBytes(Uint8List data, {bool bleSource = false}) {
-    _lastSampleTime = DateTime.now();
     final buffer = bleSource ? _bleBuffer : _classicBuffer;
     buffer.addAll(data);
     while (buffer.length >= _epidomeFrameHeaderLength) {
@@ -691,14 +932,24 @@ class AcquisitionService extends ChangeNotifier {
       final channels = List<double>.filled(_epidomeChannelCount, 0.0);
       for (var i = 0; i < _epidomeChannelCount; i++) {
         final offset = _epidomeFrameHeaderLength + i * 3;
-        var raw =
-            (buffer[offset] << 16) |
-            (buffer[offset + 1] << 8) |
-            buffer[offset + 2];
-        if ((raw & 0x800000) != 0) raw -= 0x1000000;
-        channels[i] = raw * _ads1299UvPerCount;
+        final raw = Ads1299Scaling.signed24(
+          buffer[offset],
+          buffer[offset + 1],
+          buffer[offset + 2],
+        );
+        final atRail = Ads1299Scaling.isAtRail(raw);
+        _xampRailRuns[i] = atRail
+            ? min(250, _xampRailRuns[i] + 1)
+            : max(0, _xampRailRuns[i] - 1);
+        if (_xampRailRuns[i] >= 25) {
+          _xampSaturatedChannels.add(i);
+        } else if (_xampRailRuns[i] == 0) {
+          _xampSaturatedChannels.remove(i);
+        }
+        channels[i] = Ads1299Scaling.xampMicrovolts(raw);
       }
       buffer.removeRange(0, _epidomeFrameLength);
+      _markSampleDelivered();
       _samples.add(
         EegSample(
           channels: channels,
@@ -721,8 +972,14 @@ class AcquisitionService extends ChangeNotifier {
     return -1;
   }
 
+  void _resetXampSaturation() {
+    for (var i = 0; i < _xampRailRuns.length; i++) {
+      _xampRailRuns[i] = 0;
+    }
+    _xampSaturatedChannels.clear();
+  }
+
   void _parseAsciiOrbit(Uint8List data, {bool bleSource = false}) {
-    _lastSampleTime = DateTime.now();
     final buffer = bleSource ? _bleBuffer : _classicBuffer;
     buffer.addAll(data);
     while (buffer.contains(10)) {
@@ -736,15 +993,12 @@ class AcquisitionService extends ChangeNotifier {
           .toList(growable: false);
       if (values.isNotEmpty) {
         final chs = values.take(3).toList();
-        while (chs.length < 3) chs.add(0.0);
+        while (chs.length < 3) {
+          chs.add(0.0);
+        }
+        chs[2] = _orbitDecoder.filterPpg(chs[2], sampleRate: 250);
 
-        final rawPpg = chs[2];
-        final ppgY = rawPpg - _ppgX1 + 0.995 * _ppgY1;
-        _ppgX1 = rawPpg;
-        _ppgY1 = ppgY;
-        _ppgSmooth = 0.12 * ppgY + 0.88 * _ppgSmooth;
-        chs[2] = _ppgSmooth * 0.15;
-
+        _markSampleDelivered();
         _samples.add(
           EegSample(
             channels: chs,
@@ -753,65 +1007,182 @@ class AcquisitionService extends ChangeNotifier {
             source: 'Orbit',
           ),
         );
+        final ppgStream = _activeProfile?.enabledStreams
+            .where((stream) => stream.signalType == SignalType.ppg)
+            .firstOrNull;
+        if (ppgStream != null && _orbitAsciiSampleIndex % 4 == 0) {
+          _streamSamples.add(
+            SignalStreamSample(
+              deviceProfileId: _activeProfile!.id,
+              streamId: ppgStream.id,
+              signalType: SignalType.ppg,
+              channels: [chs[2]],
+              channelLabels: List<String>.of(ppgStream.channelLabels),
+              channelTypes: List<SignalType>.of(ppgStream.channelTypes),
+              sampleRate: ppgStream.sampleRate,
+              timestamp: DateTime.now(),
+              unit: ppgStream.unit,
+              physicalMinimum: ppgStream.physicalMinimum,
+              physicalMaximum: ppgStream.physicalMaximum,
+            ),
+          );
+        }
+        _orbitAsciiSampleIndex++;
       }
     }
   }
 
   void _parseOrbitBleBytes(List<int> data) {
-    _lastSampleTime = DateTime.now();
     _orbitTextBuffer += utf8.decode(data, allowMalformed: true);
+    final decodedPackets = <OrbitDecodedPacket>[];
     while (true) {
       final start = _orbitTextBuffer.indexOf('{');
       if (start < 0) {
         if (_orbitTextBuffer.length > 500) _orbitTextBuffer = '';
-        return;
+        break;
       }
       final end = _orbitTextBuffer.indexOf('}', start);
-      if (end < 0) return;
+      if (end < 0) break;
       final packet = _orbitTextBuffer.substring(start, end + 1);
       _orbitTextBuffer = _orbitTextBuffer.substring(end + 1);
       try {
-        final normalized = packet.replaceAllMapped(
-          RegExp(r'([\{,]\s*)([A-Za-z]+)(\s*:)'),
-          (match) => '${match.group(1)}"${match.group(2)}"${match.group(3)}',
-        );
-        final json = jsonDecode(normalized) as Map<String, dynamic>;
-        final a = _numberList(json['A']);
-        final b = _numberList(json['B']);
-        final e = _numberList(json['E']);
-        final count = min(a.length, b.length);
-        for (var i = 0; i < count; i++) {
-          final chs = [-0.0224 * a[i], -0.0224 * b[i]];
-          if (e.isNotEmpty) {
-            final rawPpg = i < e.length ? e[i].toDouble() : e[0].toDouble();
-            final ppgY = rawPpg - _ppgX1 + 0.995 * _ppgY1;
-            _ppgX1 = rawPpg;
-            _ppgY1 = ppgY;
-            _ppgSmooth = 0.12 * ppgY + 0.88 * _ppgSmooth;
-            chs.add(_ppgSmooth * 0.15);
-          }
-          while (chs.length < 3) chs.add(0.0);
-          _samples.add(
-            EegSample(
-              channels: chs,
-              sampleRate: 250,
-              timestamp: DateTime.now(),
-              source: 'Orbit',
-            ),
-          );
-        }
+        decodedPackets.add(_orbitDecoder.decodeDetailed(packet));
       } catch (error) {
         debugPrint('[Orbit parse] $error');
       }
     }
+    if (decodedPackets.isEmpty) return;
+
+    final arrival = DateTime.now();
+    final eegSamples = decodedPackets
+        .expand((packet) => packet.displaySamples)
+        .toList(growable: false);
+    var eegTimestamp = _firstTimestampForPacket(
+      packetArrival: arrival,
+      sampleCount: eegSamples.length,
+      sampleRate: 250,
+      previous: _lastOrbitEegTimestamp,
+    );
+    const eegPeriod = Duration(microseconds: 4000);
+    for (final channels in eegSamples) {
+      _markSampleDelivered();
+      _samples.add(
+        EegSample(
+          channels: channels,
+          sampleRate: 250,
+          timestamp: eegTimestamp,
+          source: 'Orbit',
+        ),
+      );
+      _lastOrbitEegTimestamp = eegTimestamp;
+      eegTimestamp = eegTimestamp.add(eegPeriod);
+    }
+
+    final ppgStream = _activeProfile?.enabledStreams
+        .where((stream) => stream.signalType == SignalType.ppg)
+        .firstOrNull;
+    if (ppgStream == null) return;
+    final ppgSamples = decodedPackets
+        .expand((packet) => packet.ppgSamples)
+        .toList(growable: false);
+    final ppgPeriod = Duration(
+      microseconds: (1000000 / ppgStream.sampleRate).round(),
+    );
+    var ppgTimestamp = _firstTimestampForPacket(
+      packetArrival: arrival,
+      sampleCount: ppgSamples.length,
+      sampleRate: ppgStream.sampleRate,
+      previous: _lastOrbitPpgTimestamp,
+    );
+    for (final value in ppgSamples) {
+      _streamSamples.add(
+        SignalStreamSample(
+          deviceProfileId: _activeProfile!.id,
+          streamId: ppgStream.id,
+          signalType: SignalType.ppg,
+          channels: [value],
+          channelLabels: List<String>.of(ppgStream.channelLabels),
+          channelTypes: List<SignalType>.of(ppgStream.channelTypes),
+          sampleRate: ppgStream.sampleRate,
+          timestamp: ppgTimestamp,
+          unit: ppgStream.unit,
+          physicalMinimum: ppgStream.physicalMinimum,
+          physicalMaximum: ppgStream.physicalMaximum,
+        ),
+      );
+      _lastOrbitPpgTimestamp = ppgTimestamp;
+      ppgTimestamp = ppgTimestamp.add(ppgPeriod);
+    }
   }
 
-  List<double> _numberList(Object? value) {
-    if (value is List) {
-      return value.whereType<num>().map((entry) => entry.toDouble()).toList();
+  DateTime _firstTimestampForPacket({
+    required DateTime packetArrival,
+    required int sampleCount,
+    required double sampleRate,
+    required DateTime? previous,
+  }) {
+    if (sampleRate <= 0) return packetArrival;
+    final periodUs = (1000000 / sampleRate).round();
+    var first = packetArrival.subtract(
+      Duration(microseconds: periodUs * max(0, sampleCount - 1)),
+    );
+    if (previous != null && !first.isAfter(previous)) {
+      first = previous.add(const Duration(microseconds: 1));
     }
-    if (value is num) return [value.toDouble()];
-    return const [];
+    return first;
+  }
+
+  void _parseDelimitedText(Uint8List data, {bool bleSource = false}) {
+    final buffer = bleSource ? _bleBuffer : _classicBuffer;
+    buffer.addAll(data);
+    final profile = _activeProfile;
+    final streams = profile?.enabledStreams.toList() ?? const [];
+    final delimiter = profile?.delimiter ?? ',';
+    while (buffer.contains(10)) {
+      final end = buffer.indexOf(10);
+      final line = String.fromCharCodes(buffer.sublist(0, end)).trim();
+      buffer.removeRange(0, end + 1);
+      final separator = delimiter.trim().isEmpty
+          ? RegExp(r'[\s,;]+')
+          : RegExp('${RegExp.escape(delimiter)}|\\s+');
+      final values = line
+          .split(separator)
+          .map(double.tryParse)
+          .whereType<double>()
+          .toList(growable: false);
+      var offset = 0;
+      for (final stream in streams) {
+        if (offset + stream.channelCount > values.length) break;
+        final channels = values.sublist(offset, offset + stream.channelCount);
+        offset += stream.channelCount;
+        _streamSamples.add(
+          SignalStreamSample(
+            deviceProfileId: profile!.id,
+            streamId: stream.id,
+            signalType: stream.signalType,
+            channels: channels,
+            channelLabels: List<String>.of(stream.channelLabels),
+            channelTypes: List<SignalType>.of(stream.channelTypes),
+            sampleRate: stream.sampleRate,
+            timestamp: DateTime.now(),
+            unit: stream.unit,
+            physicalMinimum: stream.physicalMinimum,
+            physicalMaximum: stream.physicalMaximum,
+          ),
+        );
+        if (stream == primaryRecordingStream) {
+          _markSampleDelivered();
+          _samples.add(
+            EegSample(
+              channels: channels,
+              sampleRate: stream.sampleRate,
+              timestamp: DateTime.now(),
+              source: profile.name,
+            ),
+          );
+        }
+      }
+    }
   }
 
   ({ble.BluetoothCharacteristic? write, ble.BluetoothCharacteristic notify})?
@@ -932,8 +1303,61 @@ class AcquisitionService extends ChangeNotifier {
     return null;
   }
 
+  void _markSampleDelivered() {
+    // A notification already queued by the platform can arrive while a manual
+    // disconnect is cancelling subscriptions. It must never resurrect the
+    // viewer or mark that cancelled connection as streaming.
+    if (_connectionCancelled) return;
+    _lastSampleTime = DateTime.now();
+    _deliveredSampleCount++;
+    _rateWindowSamples++;
+    _reportTransportRateIfDue();
+    final firstSample = _deliveredSampleCount == 1;
+    if (!(_firstSampleCompleter?.isCompleted ?? true)) {
+      _firstSampleCompleter!.complete();
+    }
+    if (firstSample) {
+      _hasEverStreamed = true;
+      _stopReconnectTimer();
+      _alertService?.stopBeeping();
+      _setState(AcquisitionState.streaming);
+      debugPrint(
+        '[AcquisitionService] Valid samples received from '
+        '${_lastConnectedDevice?.name ?? 'device'}.',
+      );
+    }
+  }
+
+  void _trackTransportChunk(int byteCount) {
+    _rateWindowStarted ??= DateTime.now();
+    _rateWindowNotifications++;
+    _rateWindowBytes += byteCount;
+  }
+
+  void _reportTransportRateIfDue() {
+    final started = _rateWindowStarted;
+    if (started == null) return;
+    final elapsedSeconds =
+        DateTime.now().difference(started).inMicroseconds / 1000000;
+    if (elapsedSeconds < 5) return;
+    _deliveredSampleRate = _rateWindowSamples / elapsedSeconds;
+    if (kDebugMode) {
+      debugPrint(
+        '[Acquisition rate] ${_lastConnectedDevice?.name ?? 'device'} '
+        '${_deliveredSampleRate!.toStringAsFixed(1)} samples/s, '
+        '${(_rateWindowNotifications / elapsedSeconds).toStringAsFixed(1)} '
+        'notifications/s, '
+        '${(_rateWindowBytes / elapsedSeconds).toStringAsFixed(0)} bytes/s.',
+      );
+    }
+    _rateWindowStarted = DateTime.now();
+    _rateWindowSamples = 0;
+    _rateWindowNotifications = 0;
+    _rateWindowBytes = 0;
+    notifyListeners();
+  }
+
   void _startSynthetic() {
-    _setState(AcquisitionState.streaming);
     _syntheticTimer = Timer.periodic(const Duration(milliseconds: 4), (_) {
       final stageCycle = (_syntheticT / 60).floor() % 4;
       final baseFreq = switch (stageCycle) {
@@ -950,6 +1374,7 @@ class AcquisitionService extends ChangeNotifier {
             _random.nextDouble() * 10.0 -
             5.0;
       });
+      _markSampleDelivered();
       _samples.add(
         EegSample(
           channels: channels,
@@ -962,49 +1387,57 @@ class AcquisitionService extends ChangeNotifier {
     });
   }
 
-  DeviceKind _kindForName(String name) {
-    final upper = name.toUpperCase();
-    if (orbitPrefix.isNotEmpty && upper.startsWith(orbitPrefix.toUpperCase())) {
-      return DeviceKind.orbit;
-    }
-    if (_matchesXampPrefix(name) ||
-        upper.contains('AXXSPU') ||
-        upper.contains('EPIDOME') ||
-        upper.contains('XAMP')) {
-      return DeviceKind.epidome;
-    }
-    if (upper.contains('ORBIT')) return DeviceKind.orbit;
-    return DeviceKind.epidome;
+  DeviceProfile? _profileFor(EegDevice device) {
+    final id = device.profileId;
+    return id == null ? null : _settings?.profileById(id);
   }
 
-  bool _matchesXampPrefix(String name, [String? id]) {
-    final prefix = xampPrefix.trim().toUpperCase();
-    if (prefix.isEmpty) return false;
-    final nameMatches =
-        name.toUpperCase().startsWith(prefix) ||
-        name.toUpperCase().contains(prefix);
-    final idMatches = id != null && id.toUpperCase().contains(prefix);
-    return nameMatches || idMatches;
+  DeviceProtocol _protocolFor(EegDevice device) =>
+      _profileFor(device)?.protocol ??
+      switch (device.kind) {
+        DeviceKind.epidome => DeviceProtocol.xampBinary,
+        DeviceKind.orbit => DeviceProtocol.orbitJson,
+        DeviceKind.generic => DeviceProtocol.delimitedText,
+        DeviceKind.synthetic => DeviceProtocol.synthetic,
+      };
+
+  DeviceKind _kindForProfile(DeviceProfile profile) =>
+      switch (profile.protocol) {
+        DeviceProtocol.xampBinary => DeviceKind.epidome,
+        DeviceProtocol.orbitJson => DeviceKind.orbit,
+        DeviceProtocol.synthetic => DeviceKind.synthetic,
+        DeviceProtocol.delimitedText ||
+        DeviceProtocol.lsl => DeviceKind.generic,
+      };
+
+  DeviceProfile? _matchingProfile(
+    String name,
+    String address,
+    ConnectionTransport transport,
+  ) {
+    final upperName = name.toUpperCase();
+    final upperAddress = address.toUpperCase();
+    final profiles = _settings?.deviceProfiles ?? defaultDeviceProfiles();
+    for (final profile in profiles) {
+      if (!profile.enabled || profile.transport != transport) continue;
+      final namePattern = profile.advertisedNamePattern.trim().toUpperCase();
+      final addressPattern = profile.addressPattern.trim().toUpperCase();
+      final nameMatches =
+          namePattern.isNotEmpty &&
+          (upperName.contains(namePattern) ||
+              upperName.startsWith(namePattern));
+      final addressMatches =
+          addressPattern.isNotEmpty && upperAddress.contains(addressPattern);
+      if (nameMatches || addressMatches) return profile;
+    }
+    return null;
   }
 
   void _addDevice(EegDevice device) {
-    if (device.kind != DeviceKind.synthetic &&
-        !_matchesXampPrefix(device.name, device.id) &&
-        !device.name.toUpperCase().contains('AXXSPU') &&
-        !device.name.toUpperCase().contains('EPIDOME') &&
-        !device.name.toUpperCase().contains('ORBIT')) {
+    if (device.kind != DeviceKind.synthetic && device.profileId == null) {
       return;
     }
-    final isEeg =
-        device.kind == DeviceKind.epidome || device.kind == DeviceKind.orbit;
-    final normalized = isEeg
-        ? EegDevice(
-            name: device.name,
-            id: device.id,
-            kind: device.kind,
-            isBle: true,
-          )
-        : device;
+    final normalized = device;
 
     final existing = _seenDevices.indexWhere(
       (entry) => entry.id == normalized.id,
