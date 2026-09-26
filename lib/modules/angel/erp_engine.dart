@@ -98,6 +98,9 @@ class ErpEngine {
     this.cdSchedule = 'by-block',
     this.excludePractice = false,
     this.guideAudioEnabled = true,
+    this.visualStimulusFolder = '',
+    this.auditoryStimulusFolder = '',
+    this.stimulusFiles = const {},
   });
 
   final String level;
@@ -121,6 +124,13 @@ class ErpEngine {
   final bool intermixLevelBlocks;
   final String cdSchedule;
   final bool guideAudioEnabled;
+  final String visualStimulusFolder;
+  final String auditoryStimulusFolder;
+  final Map<String, List<String>> stimulusFiles;
+  List<String> _customStandardAudio = [];
+  List<String> _customDeviantAudio = [];
+  List<String> _customCorollaryAudio = [];
+  List<String> _customNoCorollaryAudio = [];
 
   // State
   ErpStage stage = ErpStage.idle;
@@ -379,6 +389,150 @@ class ErpEngine {
         }
       }
     }
+    await _loadCustomStimuli();
+  }
+
+  Future<void> _loadCustomStimuli() async {
+    const visualKeys = <String, String>{
+      'visual_salient_1': 'face_present',
+      'visual_control_1': 'face_absent',
+      'visual_salient_2': 'shape_present',
+      'visual_control_2': 'shape_absent',
+    };
+    for (final entry in visualKeys.entries) {
+      final decoded = await _decodeImages(stimulusFiles[entry.key] ?? const []);
+      if (decoded.isNotEmpty) cachedCategoryImages[entry.value] = decoded;
+    }
+
+    // A selected folder can be used as a bulk source when its images are
+    // organised into stimulus-type subfolders. Explicit mappings above win.
+    final visualDir = Directory(visualStimulusFolder);
+    if (visualStimulusFolder.isNotEmpty && await visualDir.exists()) {
+      final files = await visualDir
+          .list(recursive: true)
+          .where((entry) => entry is File)
+          .cast<File>()
+          .where(
+            (file) => _hasExtension(file.path, const [
+              '.png',
+              '.jpg',
+              '.jpeg',
+              '.bmp',
+            ]),
+          )
+          .toList();
+      for (final entry in visualKeys.entries) {
+        if ((stimulusFiles[entry.key] ?? const []).isNotEmpty) continue;
+        final matching =
+            files
+                .where(
+                  (file) =>
+                      _matchesVisualType(file.path, entry.key, entry.value),
+                )
+                .map((file) => file.path)
+                .toList()
+              ..sort();
+        final decoded = await _decodeImages(matching);
+        if (decoded.isNotEmpty) cachedCategoryImages[entry.value] = decoded;
+      }
+    }
+
+    _customStandardAudio = _existingFiles('auditory_standard');
+    _customDeviantAudio = _existingFiles('auditory_deviant');
+    _customCorollaryAudio = _existingFiles('auditory_corollary');
+    _customNoCorollaryAudio = _existingFiles('auditory_no_corollary');
+
+    final audioDir = Directory(auditoryStimulusFolder);
+    if (auditoryStimulusFolder.isNotEmpty && await audioDir.exists()) {
+      final files = await audioDir
+          .list(recursive: true)
+          .where((entry) => entry is File)
+          .cast<File>()
+          .where(
+            (file) => const [
+              '.wav',
+              '.mp3',
+              '.m4a',
+              '.aac',
+            ].any((extension) => file.path.toLowerCase().endsWith(extension)),
+          )
+          .map((file) => file.path)
+          .toList();
+      files.sort();
+      final deviants = files
+          .where(
+            (path) =>
+                path.toLowerCase().contains('rare') ||
+                path.toLowerCase().contains('deviant'),
+          )
+          .toList();
+      final noCorollary = files
+          .where((path) => path.toLowerCase().contains('nocorollary'))
+          .toList();
+      final corollary = files
+          .where(
+            (path) =>
+                path.toLowerCase().contains('corollary') &&
+                !path.toLowerCase().contains('nocorollary'),
+          )
+          .toList();
+      final standards = files
+          .where(
+            (path) =>
+                !deviants.contains(path) &&
+                !corollary.contains(path) &&
+                !noCorollary.contains(path),
+          )
+          .toList();
+      if (_customStandardAudio.isEmpty) _customStandardAudio = standards;
+      if (_customDeviantAudio.isEmpty) _customDeviantAudio = deviants;
+      if (_customCorollaryAudio.isEmpty) _customCorollaryAudio = corollary;
+      if (_customNoCorollaryAudio.isEmpty) {
+        _customNoCorollaryAudio = noCorollary;
+      }
+    }
+  }
+
+  List<String> _existingFiles(String key) => (stimulusFiles[key] ?? const [])
+      .where((path) => File(path).existsSync())
+      .toList();
+
+  bool _hasExtension(String path, List<String> extensions) =>
+      extensions.any((extension) => path.toLowerCase().endsWith(extension));
+
+  bool _matchesVisualType(String path, String mappingKey, String engineKey) {
+    final normalized = path.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]+'),
+      '_',
+    );
+    final aliases = switch (mappingKey) {
+      'visual_salient_1' => ['visual_salient_1', 'salient_1', engineKey],
+      'visual_control_1' => ['visual_control_1', 'control_1', engineKey],
+      'visual_salient_2' => ['visual_salient_2', 'salient_2', engineKey],
+      _ => ['visual_control_2', 'control_2', engineKey],
+    };
+    return aliases.any(normalized.contains);
+  }
+
+  Future<List<ui.Image>> _decodeImages(List<String> paths) async {
+    final decoded = <ui.Image>[];
+    for (final path in paths) {
+      if (!File(path).existsSync()) continue;
+      final image = await _loadFileImage(path);
+      if (image != null) decoded.add(image);
+    }
+    return decoded;
+  }
+
+  Future<ui.Image?> _loadFileImage(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromList(bytes, completer.complete);
+      return completer.future;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<ui.Image?> _loadUiImage(String assetPath) async {
@@ -582,6 +736,23 @@ class ErpEngine {
   }
 
   void _playTone(String category, String toneType, int index) async {
+    final custom = switch (category) {
+      'corollary' => _customCorollaryAudio,
+      'paired' when toneType == 'deviant' => _customDeviantAudio,
+      'paired' => _customStandardAudio,
+      _ => _customNoCorollaryAudio,
+    };
+    if (custom.isNotEmpty) {
+      try {
+        await _audioPlayerTone.stop();
+        await _audioPlayerTone.play(
+          DeviceFileSource(custom[index % custom.length]),
+        );
+        return;
+      } catch (error) {
+        debugPrint('Custom ANGEL audio failed: $error');
+      }
+    }
     final currentLevel = currentStageLevel;
     final levelTemplate = currentLevel == '1'
         ? 'CCS_EEG_ANGELv2_Level2_Template'

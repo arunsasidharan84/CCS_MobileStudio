@@ -1,7 +1,7 @@
 name: ccs_mobile_studio
-description: "CCS Mobile Studio - Unified EEG Research Platform (trainNIDRA + ANGEL + AdaptiveWM)"
+description: "CCS Mobile Studio - Unified EEG, ERP, sleep and neuro-cognitive research platform"
 publish_to: 'none'
-version: 1.0.5+6
+version: 1.0.6+7
 
 environment:
   sdk: ^3.11.5
@@ -41,6 +41,10 @@ dependencies:
   # Charts for PDF (hand-drawn, no external dep needed)
   # intl for date formatting
   intl: ^0.19.0
+  package_info_plus: ^9.0.1
+  open_filex: ^4.7.0
+  url_launcher: ^6.3.2
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

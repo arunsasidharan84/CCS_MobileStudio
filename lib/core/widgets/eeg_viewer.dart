@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../eeg/acquisition_service.dart';
@@ -10,6 +11,7 @@ import '../models/eeg_sample.dart';
 import '../models/device_profile.dart';
 import '../models/nirs_sample.dart';
 import '../models/signal_stream_sample.dart';
+import '../models/stream_marker.dart';
 import '../services/nirs_acquisition_service.dart';
 import '../services/settings_service.dart';
 import 'waveform_painter.dart';
@@ -36,6 +38,8 @@ class EegViewer extends StatefulWidget {
     this.initialDurationSeconds = 4,
     this.showControls = true,
     this.showMetrics = true,
+    this.markerStream,
+    this.fullScreen = false,
   });
 
   final AcquisitionService? eegService;
@@ -47,6 +51,8 @@ class EegViewer extends StatefulWidget {
   final int initialDurationSeconds;
   final bool showControls;
   final bool showMetrics;
+  final Stream<StreamMarker>? markerStream;
+  final bool fullScreen;
 
   @override
   State<EegViewer> createState() => _EegViewerState();
@@ -67,6 +73,8 @@ class _EegViewerState extends State<EegViewer>
   StreamSubscription<EegSample>? _lslEegSub;
   StreamSubscription<NirsSample>? _nirsSub;
   StreamSubscription<SignalStreamSample>? _signalSub;
+  StreamSubscription<StreamMarker>? _markerSub;
+  final List<StreamMarker> _markers = [];
   Timer? _repaintTimer;
   DateTime _lastRepaintAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -166,6 +174,23 @@ class _EegViewerState extends State<EegViewer>
     }
 
     _initStreams();
+    _markerSub = widget.markerStream?.listen((marker) {
+      if (!mounted) return;
+      final existing = _markers.indexWhere(
+        (item) =>
+            item.receivedAt == marker.receivedAt && item.code == marker.code,
+      );
+      setState(() {
+        if (existing >= 0) {
+          _markers[existing] = marker;
+        } else {
+          _markers.add(marker);
+        }
+        _markers.removeWhere(
+          (item) => DateTime.now().difference(item.receivedAt).inMinutes > 10,
+        );
+      });
+    });
   }
 
   void _initStreams() {
@@ -535,6 +560,7 @@ class _EegViewerState extends State<EegViewer>
     _lslEegSub?.cancel();
     _nirsSub?.cancel();
     _signalSub?.cancel();
+    _markerSub?.cancel();
     _repaintTimer?.cancel();
     _tabController?.dispose();
     super.dispose();
@@ -561,7 +587,7 @@ class _EegViewerState extends State<EegViewer>
       );
     }
 
-    return Column(
+    final viewer = Column(
       children: [
         if (_tabs.length > 1)
           Container(
@@ -580,7 +606,8 @@ class _EegViewerState extends State<EegViewer>
             ),
           ),
 
-        if (widget.showControls && _hasEeg) _buildControlsBar(lightTeal),
+        if (widget.showControls && _hasEeg && !widget.fullScreen)
+          _buildControlsBar(lightTeal),
 
         Expanded(
           child: _tabs.length > 1
@@ -596,10 +623,30 @@ class _EegViewerState extends State<EegViewer>
               : (_hasEeg ? _buildEegView(lightTeal) : _buildNirsView()),
         ),
 
-        if (widget.showMetrics) ...[
+        if (widget.showMetrics && !widget.fullScreen) ...[
           const SizedBox(height: 12),
           _buildMetricsPanel(),
         ],
+      ],
+    );
+    if (!widget.fullScreen) return viewer;
+    return Stack(
+      children: [
+        Positioned.fill(child: viewer),
+        Positioned(
+          right: 8,
+          top: 8,
+          child: Material(
+            color: const Color(0xB3111827),
+            borderRadius: BorderRadius.circular(24),
+            child: IconButton(
+              tooltip: 'Exit full screen',
+              color: Colors.white,
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.fullscreen_exit),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -617,6 +664,13 @@ class _EegViewerState extends State<EegViewer>
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
+            IconButton(
+              tooltip: 'Maximize waveform area',
+              visualDensity: VisualDensity.compact,
+              color: activeColor,
+              onPressed: _openFullScreen,
+              icon: const Icon(Icons.fullscreen, size: 22),
+            ),
             const Text(
               'Epoch',
               style: TextStyle(color: Colors.white70, fontSize: 12),
@@ -751,6 +805,36 @@ class _EegViewerState extends State<EegViewer>
         ),
       ),
     );
+  }
+
+  Future<void> _openFullScreen() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => Scaffold(
+          backgroundColor: const Color(0xFF0B0F19),
+          body: SafeArea(
+            minimum: const EdgeInsets.all(4),
+            child: EegViewer(
+              eegService: widget.eegService,
+              lslEegService: widget.lslEegService,
+              nirsService: widget.nirsService,
+              signalStream: widget.signalStream,
+              signalProfile: widget.signalProfile,
+              displayStateKey: widget.displayStateKey,
+              initialDurationSeconds: _durationSeconds,
+              showControls: false,
+              showMetrics: false,
+              markerStream: widget.markerStream,
+              fullScreen: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Widget _compactCheckbox({
@@ -1267,6 +1351,7 @@ class _EegViewerState extends State<EegViewer>
   }
 
   Widget _buildEegView(Color lightTeal) {
+    final settings = context.watch<SettingsService>();
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF111827),
@@ -1312,6 +1397,10 @@ class _EegViewerState extends State<EegViewer>
                               autoscale: false,
                               channelLabels: _displayChannelLabels,
                               channelScaleFactors: _channelScaleFactors,
+                              markers: _markers,
+                              traceColor: Color(settings.waveformColorValue),
+                              strokeWidth: settings.waveformStrokeWidth,
+                              now: DateTime.now(),
                             ),
                           ),
                         ),

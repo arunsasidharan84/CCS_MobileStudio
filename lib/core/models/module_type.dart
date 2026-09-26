@@ -2,6 +2,7 @@
 enum ModuleType {
   nidra,
   angel,
+  erp,
   wm,
   heartsync,
   standalone,
@@ -11,6 +12,7 @@ enum ModuleType {
   String get fileTag => switch (this) {
     ModuleType.nidra => 'NIDRA',
     ModuleType.angel => 'ANGEL',
+    ModuleType.erp => 'ERP',
     ModuleType.wm => 'WM',
     ModuleType.heartsync => 'HEARTSYNC',
     ModuleType.standalone => 'EEG',
@@ -21,6 +23,7 @@ enum ModuleType {
   String get displayName => switch (this) {
     ModuleType.nidra => 'Train NIDRA',
     ModuleType.angel => 'ANGEL',
+    ModuleType.erp => 'Generic ERP',
     ModuleType.wm => 'Adaptive WM',
     ModuleType.heartsync => 'HeartSync',
     ModuleType.standalone => 'EEG Recorder',

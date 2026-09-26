@@ -27,6 +27,65 @@ class HeartSyncStimulusService {
 
   final Map<HeartSyncStimulusKind, AudioPlayer> _players;
   final Map<String, Uint8List> _toneCache = {};
+  final Map<HeartSyncStimulusKind, String> _preparedKeys = {};
+  final List<File> _generatedToneFiles = [];
+
+  /// Resolve, decode and preload both stimuli before real-time scheduling.
+  ///
+  /// `BytesSource` is not supported consistently by Darwin's AVPlayer backend.
+  /// Generated tones are therefore written once to the app's temporary folder
+  /// and loaded through the same file-backed path as operator-selected sounds.
+  Future<void> prepare(HeartSyncConfig config) async {
+    if (config.stimulusMode != HeartSyncStimulusMode.tones) return;
+    await _prepareKind(HeartSyncStimulusKind.frequent, config);
+    await _prepareKind(HeartSyncStimulusKind.rare, config);
+  }
+
+  Future<void> _prepareKind(
+    HeartSyncStimulusKind kind,
+    HeartSyncConfig config,
+  ) async {
+    final selectedPath = kind == HeartSyncStimulusKind.frequent
+        ? config.frequentFilePath.trim()
+        : config.rareFilePath.trim();
+    final frequency = kind == HeartSyncStimulusKind.frequent
+        ? config.frequentToneHz
+        : config.rareToneHz;
+    final key = selectedPath.isNotEmpty
+        ? 'file:$selectedPath'
+        : 'tone:$frequency:${config.toneDurationMs}';
+    if (_preparedKeys[kind] == key) return;
+
+    late final File sourceFile;
+    if (selectedPath.isNotEmpty) {
+      sourceFile = File(selectedPath);
+      if (!await sourceFile.exists()) {
+        throw StateError(
+          '${kind.name} sound file does not exist: $selectedPath',
+        );
+      }
+    } else {
+      final bytes = _toneCache.putIfAbsent(
+        key,
+        () => _wavTone(frequency, config.toneDurationMs),
+      );
+      final folder = Directory(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}ccs_heartsync_audio',
+      );
+      await folder.create(recursive: true);
+      sourceFile = File(
+        '${folder.path}${Platform.pathSeparator}'
+        '${kind.name}_${frequency.round()}_${config.toneDurationMs}.wav',
+      );
+      await sourceFile.writeAsBytes(bytes, flush: true);
+      if (!_generatedToneFiles.any((file) => file.path == sourceFile.path)) {
+        _generatedToneFiles.add(sourceFile);
+      }
+    }
+
+    await _players[kind]!.setSource(DeviceFileSource(sourceFile.path));
+    _preparedKeys[kind] = key;
+  }
 
   Future<HeartSyncPlaybackReceipt> present(
     HeartSyncStimulusKind kind,
@@ -36,28 +95,13 @@ class HeartSyncStimulusService {
       final now = DateTime.now();
       return HeartSyncPlaybackReceipt(requestedAt: now, acknowledgedAt: now);
     }
-    final path = kind == HeartSyncStimulusKind.frequent
-        ? config.frequentFilePath
-        : config.rareFilePath;
+    await _prepareKind(kind, config);
     final player = _players[kind]!;
-    if (path.isNotEmpty && await File(path).exists()) {
-      final requestedAt = DateTime.now();
-      await player.play(DeviceFileSource(path));
-      return HeartSyncPlaybackReceipt(
-        requestedAt: requestedAt,
-        acknowledgedAt: DateTime.now(),
-      );
-    }
-    final frequency = kind == HeartSyncStimulusKind.frequent
-        ? config.frequentToneHz
-        : config.rareToneHz;
-    final cacheKey = '$frequency:${config.toneDurationMs}';
-    final bytes = _toneCache.putIfAbsent(
-      cacheKey,
-      () => _wavTone(frequency, config.toneDurationMs),
-    );
     final requestedAt = DateTime.now();
-    await player.play(BytesSource(bytes));
+    // Source decoding happened in prepare(). Only reset and resume remain on
+    // the timing-critical path.
+    await player.seek(Duration.zero);
+    await player.resume();
     return HeartSyncPlaybackReceipt(
       requestedAt: requestedAt,
       acknowledgedAt: DateTime.now(),
@@ -105,6 +149,13 @@ class HeartSyncStimulusService {
   Future<void> dispose() async {
     for (final player in _players.values) {
       await player.dispose();
+    }
+    for (final file in _generatedToneFiles) {
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        // Temporary-file cleanup must not hide experiment results.
+      }
     }
   }
 }

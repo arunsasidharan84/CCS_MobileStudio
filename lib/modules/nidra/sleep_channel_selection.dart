@@ -52,6 +52,10 @@ class SleepChannelSelection {
             'C2',
             'F3',
             'F4',
+            // The legacy CCS 16-channel files use generic names. EEG 3 was
+            // the best single-channel causal derivation in the supplied SSA3
+            // whole-night replay; users can still override this in settings.
+            'EEG3',
           ], (index) => _isEegSignal(normalized[index]));
     final signalIndex = preferredIndex >= 0
         ? preferredIndex

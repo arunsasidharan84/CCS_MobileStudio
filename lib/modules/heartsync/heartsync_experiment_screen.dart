@@ -11,6 +11,7 @@ import '../../core/services/multi_stream_lsl_service.dart';
 import '../../core/services/session_manager.dart';
 import 'heartsync_engine.dart';
 import 'heartsync_export_service.dart';
+import 'heartsync_plots.dart';
 import 'models.dart';
 
 class HeartSyncExperimentScreen extends StatefulWidget {
@@ -51,7 +52,9 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
   Future<void> _begin() async {
     final acq = context.read<AcquisitionService>();
     final sessions = context.read<SessionManager>();
-    if (widget.config.recordPhysiology && sessions.isStreaming) {
+    if (widget.config.inputMode == HeartSyncInputMode.live &&
+        widget.config.recordPhysiology &&
+        sessions.isStreaming) {
       try {
         await sessions.startSession(
           subject: widget.participant,
@@ -70,7 +73,7 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
         }
       }
     }
-    _engine.start();
+    await _engine.start();
   }
 
   void _onEngineChanged() {
@@ -229,6 +232,15 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
             ],
           ),
         ),
+        if (widget.config.showLiveWaveform)
+          HeartSyncLivePlot(
+            ppg: _engine.visiblePpgTrace,
+            ecg: _engine.visibleEcgTrace,
+            beats: _engine.beatTrace,
+            markers: _engine.markerTrace,
+            seconds: widget.config.waveformSeconds,
+          ),
+        if (widget.config.showLiveWaveform) const SizedBox(height: 8),
         Expanded(
           child: Center(
             child: _engine.state == HeartSyncRunState.calibrating
@@ -293,13 +305,24 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
 
   Widget _summary() {
     final s = _engine.summary!;
+    final detectionLatency = _engine.results
+        .map((trial) => trial.detectionLatencyMs)
+        .whereType<double>()
+        .toList();
+    final dispatchError = _engine.results
+        .map((trial) => trial.timerDispatchErrorMs?.abs())
+        .whereType<double>()
+        .toList();
+    final audioLatency = _engine.results
+        .map((trial) => trial.audioCommandLatencyMs)
+        .toList();
     String metric(double? value) =>
         value?.toStringAsFixed(1) ?? 'Insufficient valid rare responses';
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 650),
+          constraints: const BoxConstraints(maxWidth: 850),
           child: Card(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -317,6 +340,32 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 22),
+                  HeartSyncVerificationPlot(
+                    ppg: _engine.ppgSamples,
+                    ecg: _engine.ecgSamples,
+                    results: _engine.results,
+                    config: widget.config,
+                  ),
+                  const Divider(height: 28),
+                  const Text(
+                    'Timing quality',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  _metric(
+                    'Peak detection latency (mean)',
+                    '${_mean(detectionLatency)?.toStringAsFixed(1) ?? 'n/a'} ms',
+                  ),
+                  _metric(
+                    'Timer dispatch error (mean absolute / p95)',
+                    '${_mean(dispatchError)?.toStringAsFixed(1) ?? 'n/a'} / '
+                        '${_percentile95(dispatchError)?.toStringAsFixed(1) ?? 'n/a'} ms',
+                  ),
+                  _metric(
+                    'Audio command latency (mean / p95)',
+                    '${_mean(audioLatency)?.toStringAsFixed(1) ?? 'n/a'} / '
+                        '${_percentile95(audioLatency)?.toStringAsFixed(1) ?? 'n/a'} ms',
+                  ),
+                  const Divider(height: 28),
                   _metric(
                     'Rare RT — post-hoc systole',
                     '${metric(s.rareSystolicMeanMs)} ms',
@@ -411,6 +460,16 @@ class _HeartSyncExperimentScreenState extends State<HeartSyncExperimentScreen> {
       ],
     ),
   );
+
+  double? _mean(List<double> values) => values.isEmpty
+      ? null
+      : values.reduce((first, second) => first + second) / values.length;
+
+  double? _percentile95(List<double> values) {
+    if (values.isEmpty) return null;
+    final sorted = [...values]..sort();
+    return sorted[((sorted.length - 1) * 0.95).round()];
+  }
 
   Widget _rtRatioMetric(String label, HeartSyncRtSummary metric) {
     final ratio = metric.ratio?.toStringAsFixed(3) ?? 'n/a';

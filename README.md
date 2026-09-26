@@ -1,14 +1,40 @@
-# CCS Mobile Studio — Unified EEG / fNIRS Neuro-Cognitive Research Platform
+<div align="center">
 
-<p align="center">
-  Developed by the <b>Team from Centre for Consciousness Studies (CCS)</b>,<br>
-  Department of Neurophysiology,<br>
-  <b>National Institute of Mental Health and Neurosciences (NIMHANS)</b>, Bangalore, India.
-</p>
+# CCS Mobile Studio
 
-**Version:** 1.0.5 · **Platforms:** Android, macOS, and Windows (Flutter)
+### One workspace for neurophysiology acquisition, stimulation and cognitive experiments
 
-**CCS Mobile Studio** is a unified cross-platform application that consolidates five previously separate research tools — EEG/fNIRS recording, automated sleep staging, an ERP cognitive battery, an adaptive working-memory task, and a subjective sleepiness assessment — into a single, subject-session-aware app. It is built with **Flutter** for the interface and a native **Rust** core (via `dart:ffi`) for real-time signal processing, ONNX-based sleep-stage inference, and EDF file I/O, so every module shares one acquisition engine, one file-naming convention, and one connection-management layer.
+[![Version](https://img.shields.io/badge/version-1.0.6-14b8a6?style=for-the-badge)](https://github.com/arunsasidharan84/CCS_MobileStudio/releases)
+[![Flutter](https://img.shields.io/badge/Flutter-3.41-54c5f8?style=for-the-badge&logo=flutter)](https://flutter.dev)
+[![Native core](https://img.shields.io/badge/native_core-Rust-f97316?style=for-the-badge&logo=rust)](rust/)
+[![Platforms](https://img.shields.io/badge/platforms-Android_%7C_macOS_%7C_Windows-8b5cf6?style=for-the-badge)](#installation-and-updates)
+
+Developed by the **Centre for Consciousness Studies (CCS)**, Department of
+Neurophysiology, **NIMHANS**, Bengaluru, India.
+
+[Download the latest release](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest) · [Explore the modules](#research-modules) · [Build from source](#building-from-source)
+
+<img src="docs/images/dashboard.png" alt="CCS Mobile Studio unified study dashboard" width="920">
+
+</div>
+
+CCS Mobile Studio brings live EEG/fNIRS acquisition, sleep staging, ERP
+experiments, adaptive cognition tasks and synchronized stimulation into one
+subject-session-aware application. Flutter provides a consistent interface
+across Android, macOS and Windows, while a native Rust core handles real-time
+signal processing, ONNX inference and standards-compliant EDF writing.
+
+> Enter the participant identifier once, connect the acquisition hardware and
+> move through the complete study sequence without changing applications or
+> manually reconciling filenames.
+
+## Highlights
+
+| Acquire | Experiment | Analyse & safeguard |
+|---|---|---|
+| Multi-device EEG, ECG, PPG and fNIRS streaming | Train NIDRA, ANGEL, Conventional ERP, Adaptive WM and HeartSync | Live signal quality, ERP averages and sleep staging |
+| Full-screen configurable waveforms and live markers | Bundled or researcher-supplied visual/audio stimuli | Timestamped, calibrated EDF with reconnect-safe segments |
+| BLE, Bluetooth Classic and LSL profiles | Configurable marker profiles and study ordering | In-app, checksum-verified release updates |
 
 ---
 
@@ -20,7 +46,7 @@ The app talks to hardware over **Bluetooth LE** (EEG amplifier) and **WiFi via L
 
 ---
 
-## Modules
+## Research Modules
 
 ### 1. Standalone EEG / fNIRS Recorder
 The shared viewing-and-recording engine used by every other module, also available on its own as a general-purpose utility.
@@ -40,12 +66,28 @@ The shared viewing-and-recording engine used by every other module, also availab
 * Full **multilingual support** — English, Hindi, and Kannada stimulus sets.
 * Automatic **PDF summary report** generation per session: overall and block-wise accuracy and reaction time, with dual field-mapping (`accuracy`/`correct`, `rt`/`rt_ms`) for robustness across trial formats.
 
-### 4. Adaptive WM — Working Memory Task
+### 4. Conventional ERP Laboratory
+* Flexible visual/auditory oddball, N400, P50, MMN and N170 paradigms.
+* Configurable standard/target stimuli, event codes, probability, timing and trial count.
+* Live baseline-corrected ERP averaging with component-specific analysis windows.
+
+### 5. Adaptive WM — Working Memory Task
 * Adaptive working-memory paradigm with its own trial runner and stimulus renderer.
 * Generates a PDF working-memory summary report on completion, mirroring the ANGEL reporting workflow.
 
-### 5. Sleepiness Scale
+### 6. HeartSync — Cardiac-Phase Oddball
+* Heartbeat-locked stimulus delivery from live PPG or ECG with recorded timing diagnostics.
+* Replay support for validating cardiac detection and stimulus scheduling from offline CSV data.
+* Trial, phase-distribution and average cardiac-cycle exports for post-hoc analysis.
+
+### 7. Sleepiness Scale
 * Standalone Stanford Sleepiness Scale (SSS) assessment, intentionally decoupled from ANGEL/WM so it can be administered at any point in a protocol — before a nap, after a task block, at the start or end of a session — without being tied to a specific task module.
+
+## Interface Gallery
+
+| ANGEL multilingual instructions | Adaptive working-memory trial |
+|---|---|
+| <img src="docs/images/angel-instructions.png" alt="ANGEL cognitive task instructions" width="470"> | <img src="docs/images/adaptive-wm-task.png" alt="Adaptive working-memory task" width="560"> |
 
 ---
 
@@ -58,6 +100,7 @@ The shared viewing-and-recording engine used by every other module, also availab
 * **Session Manager** — tracks session timestamp, subject, active module, and segment index; automatically closes and re-opens EDF segments across disconnect/reconnect events and exports finished recordings to `Downloads/CCS_MobileStudio`.
 * **Standardized File Naming** — every exported file follows `<subject>_<MODULE>_<yyyyMMdd_HHmmss>[_partN].<ext>`, where `MODULE` is one of `NIDRA`, `ANGEL`, `WM`, `EEG`, or `SSS`.
 * **Diagnostics & Troubleshooting Drawer** — per-session tools to test the audio beep/ACLS speaker path, verify the LSL multicast lock (required for WiFi stream discovery on Android 10+), and check the export location, without restarting the app.
+* **In-App Updates** — the update button in the dashboard checks GitHub release metadata over HTTPS, selects the correct platform package, verifies its published SHA-256 digest when available, and starts the OS installation flow. Active recordings must be stopped first.
 
 ---
 
@@ -82,7 +125,9 @@ lib/
 │   ├── standalone/  # EEG/fNIRS recorder & viewer
 │   ├── nidra/        # Train NIDRA: sleep pipeline, ACLS
 │   ├── angel/        # ANGEL ERP battery, trial models, PDF reports
+│   ├── generic_erp/  # conventional ERP paradigms and live averaging
 │   ├── adaptive_wm/  # Adaptive WM task, trial runner, PDF reports
+│   ├── heartsync/    # cardiac-phase detection, task and replay tools
 │   ├── sleepiness/   # Stanford Sleepiness Scale
 │   └── settings/     # global settings & channel configuration
 └── main.dart
@@ -95,7 +140,24 @@ assets/
 
 ---
 
-## Prerequisites
+## Installation and Updates
+
+Download the package for your operating system from
+[GitHub Releases](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest):
+
+| Platform | Release package | Update behavior |
+|---|---|---|
+| Android | `CCS-Mobile-Studio-…-Android.apk` | Opens Android's package installer for confirmation |
+| macOS | `CCS-Mobile-Studio-…-macOS-universal.zip` | Replaces the current app safely and relaunches; falls back to Finder if permissions prevent replacement |
+| Windows | `CCS-Mobile-Studio-…-Windows-x64.zip` | Stages the replacement after exit and relaunches; falls back to Explorer if permissions prevent replacement |
+
+Inside the app, select the **Update** icon in the upper-right dashboard toolbar.
+The current release remains untouched until the new package has downloaded and
+passed verification.
+
+## Building from Source
+
+### Prerequisites
 
 * [Flutter SDK](https://docs.flutter.dev/get-started/install) (Dart SDK `^3.11.5`)
 * [Rust toolchain](https://www.rust-lang.org/tools/install) (`cargo`)
@@ -135,20 +197,20 @@ and writes the complete candidate metrics to
 before the 100× front-end calibration fix, add `--signal-scale 0.01`; this
 cannot recover samples that were already clipped at the EDF physical limits.
 
-## Running the App
+### Running the App
 
 ```sh
 flutter pub get
 flutter run
 ```
 
-## Building a Release APK
+### Building a Release APK
 
 ```sh
 flutter build apk --release
 ```
 
-## Building Desktop Releases
+### Building Desktop Releases
 
 Run the command on the matching host operating system:
 
@@ -170,12 +232,31 @@ Flow → Output Folder**. Exports are organized below it as
 `<subject>/<session>/`. The same settings page controls whether ANGEL,
 Adaptive WM, and HeartSync save connected physiological streams. ANGEL and
 Adaptive WM can run task-only while continuing to save behavioral logs and
-reports; HeartSync still requires live PPG or ECG for cardiac timing even when
-continuous physiological saving is disabled.
+reports. During acquisition HeartSync requires live PPG or ECG for cardiac
+timing even when continuous physiological saving is disabled. For algorithm
+testing without a device, HeartSync also has **Replay CSV** input. A replay
+file needs a
+`timestamp`, `timestamp_utc`, `time`, or `seconds` column and a `PPG`, `ECG`,
+`value`, or `signal` column; it may contain both `PPG` and `ECG` and an optional
+`marker` column. Replay uses recorded timing and the same online detector as a
+live run.
+
+HeartSync's optional live plot shows the cleaned PPG and/or ECG, detected-beat
+lines, and stimulus/response markers. Its completion plot shows average
+peak-to-peak cardiac cycles with separate post-hoc marker-phase distributions.
+The trial CSV and summary JSON include detection, timer-dispatch, and audio
+command latency measurements so timing errors can be diagnosed separately.
 
 The `Desktop release builds` GitHub Actions workflow runs whenever the version
-in `pubspec.yaml` is changed on `main` (and can also be started manually). It
-publishes zipped macOS universal and Windows x64 builds as workflow artifacts.
+in `pubspec.yaml` is changed on `main` and can also be started manually. It
+builds macOS universal, Windows x64 and Android packages, then publishes them
+under a versioned GitHub Release consumed by the in-app updater.
+
+Published Android builds must always use the same signing identity so Android
+can install a newer APK over an existing version. Configure the repository
+secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Local release builds fall back
+to the debug key for development only and should not be distributed.
 
 ---
 

@@ -1,5 +1,9 @@
+import 'dart:io';
 import 'dart:math';
 
+import 'package:ccs_mobile_studio/core/eeg/orbit_sample_clock.dart';
+import 'package:ccs_mobile_studio/core/models/device_profile.dart';
+import 'package:ccs_mobile_studio/modules/heartsync/cardiac_replay.dart';
 import 'package:ccs_mobile_studio/modules/heartsync/models.dart';
 import 'package:ccs_mobile_studio/modules/heartsync/cardiac_detector.dart';
 import 'package:ccs_mobile_studio/modules/heartsync/adaptive_boundary_analyzer.dart';
@@ -8,6 +12,49 @@ import 'package:ccs_mobile_studio/modules/heartsync/trial_planner.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('Orbit sample clock suppresses BLE notification jitter', () {
+    final clock = OrbitSampleClock();
+    final start = DateTime.utc(2026, 1, 1);
+    final first = clock.firstTimestampForBatch(
+      packetArrival: start.add(const Duration(milliseconds: 48)),
+      sampleCount: 4,
+      sampleRate: 62.5,
+    );
+    final second = clock.firstTimestampForBatch(
+      // This notification is 30 ms late, but samples remain nearly uniform.
+      packetArrival: start.add(const Duration(milliseconds: 142)),
+      sampleCount: 4,
+      sampleRate: 62.5,
+    );
+    expect(first, start);
+    expect(second.difference(first).inMilliseconds, 66);
+  });
+
+  test('cardiac replay reads simultaneous PPG, ECG, and markers', () async {
+    final directory = await Directory.systemTemp.createTemp('heartsync_test_');
+    final file = File('${directory.path}/both.csv');
+    try {
+      await file.writeAsString(
+        'timestamp_utc,PPG,ECG,marker\n'
+        '2026-01-01T00:00:00.000Z,1.0,-2.0,0\n'
+        '2026-01-01T00:00:00.016Z,1.2,-1.5,11\n',
+      );
+      final replay = await HeartSyncCardiacReplay.load(
+        file.path,
+        valueColumnType: SignalType.ppg,
+      );
+      expect(replay, hasLength(4));
+      expect(replay.map((sample) => sample.signalType).toSet(), {
+        SignalType.ppg,
+        SignalType.ecg,
+      });
+      expect(replay.last.offset, const Duration(milliseconds: 16));
+      expect(replay.last.markerCode, 11);
+    } finally {
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('delivery probability defaults to 80% and is safely bounded', () {
     expect(const HeartSyncConfig().validated().deliveryProbability, 0.8);
     expect(

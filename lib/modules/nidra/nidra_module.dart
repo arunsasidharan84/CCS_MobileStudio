@@ -19,11 +19,16 @@ import 'sleep_pipeline.dart';
 /// Module controller for Train NIDRA (Sleep staging & Auditory Stimulation).
 class NidraModule extends ChangeNotifier {
   NidraModule({required this.sessionManager, required this.alertService})
-    : stimService = AuditoryStimService(alertService: alertService);
+    : stimService = AuditoryStimService(alertService: alertService) {
+    stimService.onStimulusPresented = (label) {
+      sessionManager.recordEvent(label, stimulusMarkerCode);
+    };
+  }
 
   final SessionManager sessionManager;
   final AlertService alertService;
   final AuditoryStimService stimService;
+  int stimulusMarkerCode = 40;
 
   SleepPipeline? _pipeline;
   int _pipelineGeneration = 0;
@@ -109,11 +114,14 @@ class NidraModule extends ChangeNotifier {
   }
 
   Future<String> _deployScoringModel() async {
-    const assetStem = 'assets/models/tinysleepnet-supratak/model.onnx';
+    // Replay validation on both app-recorded generic EEG and conventional PSG
+    // showed the PSG variant to be substantially more stable than the generic
+    // export (SSA3 all-night accuracy 76.1% vs 60.5%).
+    const assetStem = 'assets/models/tinysleepnet-supratak/psg_model.onnx';
     final support = await getApplicationSupportDirectory();
     final modelDirectory = Directory('${support.path}/sleep_models');
     await modelDirectory.create(recursive: true);
-    final modelPath = '${modelDirectory.path}/model.onnx';
+    final modelPath = '${modelDirectory.path}/psg_model.onnx';
     final dataPath = '$modelPath.data';
     await _copyAsset(assetStem, modelPath);
     await _copyAsset('$assetStem.data', dataPath);

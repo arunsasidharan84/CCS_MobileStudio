@@ -21,6 +21,7 @@ class AuditoryStimService extends ChangeNotifier {
 
   final AlertService alertService;
   final DateTime Function() _now;
+  void Function(String label)? onStimulusPresented;
 
   // Configuration settings
   bool _enabled = false;
@@ -405,13 +406,13 @@ class AuditoryStimService extends ChangeNotifier {
 
     var elapsedBurstSecs = 0;
     _burstTimer?.cancel();
-    unawaited(_playStimulus());
+    unawaited(_playStimulus('nidra_stimulus'));
     _burstTimer = Timer.periodic(Duration(seconds: _intervalSecs), (timer) {
       if (!_enabled || !_isStimulating) {
         timer.cancel();
         return;
       }
-      unawaited(_playStimulus());
+      unawaited(_playStimulus('nidra_stimulus'));
       elapsedBurstSecs += _intervalSecs;
       if (elapsedBurstSecs >= _maxDurationSecs) {
         timer.cancel();
@@ -421,27 +422,31 @@ class AuditoryStimService extends ChangeNotifier {
     });
   }
 
-  Future<void> testStimulus() => _playStimulus();
+  Future<void> sendStimulus() => _playStimulus('nidra_stimulus_manual');
 
-  Future<void> _playStimulus() async {
+  @Deprecated('Use sendStimulus')
+  Future<void> testStimulus() => sendStimulus();
+
+  Future<void> _playStimulus(String markerLabel) async {
     try {
-      await _playStimulusUnchecked();
+      final presented = await _playStimulusUnchecked();
+      if (presented) onStimulusPresented?.call(markerLabel);
     } catch (error) {
       _statusText = 'Could not play stimulus: $error';
       notifyListeners();
     }
   }
 
-  Future<void> _playStimulusUnchecked() async {
+  Future<bool> _playStimulusUnchecked() async {
     if (_stimType == 'audio') {
       if (_audioFilePath.isEmpty || !await File(_audioFilePath).exists()) {
         _statusText = 'Audio file missing — choose it again on this device';
         notifyListeners();
-        return;
+        return false;
       }
       await _audioPlayer.setVolume(_volume);
       await _audioPlayer.play(DeviceFileSource(_audioFilePath));
-      return;
+      return true;
     }
     if (_stimType == 'tone') {
       final key = '$_toneFrequencyHz:$_toneDurationMs';
@@ -451,9 +456,10 @@ class AuditoryStimService extends ChangeNotifier {
       );
       await _audioPlayer.setVolume(_volume);
       await _audioPlayer.play(BytesSource(bytes));
-      return;
+      return true;
     }
     await alertService.playBeep();
+    return true;
   }
 
   Uint8List _wavTone(double frequency, int durationMs) {

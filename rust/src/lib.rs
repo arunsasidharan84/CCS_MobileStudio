@@ -360,8 +360,8 @@ fn score_epoch(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
 
 fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<SleepScore> {
     let centered = center_epoch(epoch);
-    let signal_sd = standard_deviation(&centered);
-    if signal_sd < 0.5 {
+    let signal_scale = robust_signal_scale(&centered);
+    if signal_scale < 1e-6 {
         return Some(SleepScore {
             artifact_ratio: 1.0,
             ..SleepScore::default()
@@ -402,8 +402,7 @@ fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<Sle
     let scorer = state.scorer.as_ref()?;
     let (stage, confidence, probs) = scorer.score_sequence(&flat).ok()?;
     state.filtered_epoch = filtered.clone();
-    let artifact_ratio =
-        centered.iter().filter(|v| v.abs() > 250.0).count() as f64 / centered.len().max(1) as f64;
+    let artifact_ratio = scale_invariant_artifact_ratio(&centered, signal_scale);
     let score = SleepScore {
         ready: true,
         stage,
@@ -426,7 +425,8 @@ fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<Sle
 
 fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
     let centered = center_epoch(epoch);
-    if standard_deviation(&centered) < 0.5 {
+    let signal_scale = robust_signal_scale(&centered);
+    if signal_scale < 1e-6 {
         return SleepScore {
             artifact_ratio: 1.0,
             ..SleepScore::default()
@@ -440,8 +440,7 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
         &mut state.high_prev_y,
     );
     state.filtered_epoch = filtered.clone();
-    let artifact_ratio =
-        centered.iter().filter(|v| v.abs() > 250.0).count() as f64 / centered.len().max(1) as f64;
+    let artifact_ratio = scale_invariant_artifact_ratio(&centered, signal_scale);
 
     let delta = bandpower(&filtered, state.sample_rate, 0.5, 4.0);
     let theta = bandpower(&filtered, state.sample_rate, 4.0, 8.0);
@@ -519,7 +518,23 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
 }
 
 fn prepare_model_epoch(epoch: &[f64], sample_rate: f64) -> Vec<f32> {
-    let clipped: Vec<f64> = epoch.iter().map(|&v| robust_clip(v)).collect();
+    // The model is epoch-normalized, so a fixed microvolt clip only damages
+    // legacy EDFs whose acquisition gain was wrong. Winsorize relative to the
+    // epoch's robust spread instead: current µV data and older count-like data
+    // then produce the same causal model input while isolated spikes are kept
+    // out of the resampler.
+    let scale = robust_signal_scale(epoch).max(1e-6);
+    let limit = 10.0 * scale;
+    let clipped: Vec<f64> = epoch
+        .iter()
+        .map(|&value| {
+            if value.is_finite() {
+                value.clamp(-limit, limit)
+            } else {
+                0.0
+            }
+        })
+        .collect();
     let resampled = resample_linear(&clipped, (sample_rate * 30.0).round() as usize, 3000);
     robust_zscore(&resampled)
 }
@@ -553,22 +568,6 @@ fn center_epoch(epoch: &[f64]) -> Vec<f64> {
             }
         })
         .collect()
-}
-
-fn standard_deviation(input: &[f64]) -> f64 {
-    if input.is_empty() {
-        return 0.0;
-    }
-    let mean = input.iter().sum::<f64>() / input.len() as f64;
-    let variance = input
-        .iter()
-        .map(|value| {
-            let delta = value - mean;
-            delta * delta
-        })
-        .sum::<f64>()
-        / input.len() as f64;
-    variance.sqrt()
 }
 
 fn resample_linear(input: &[f64], expected_len: usize, output_len: usize) -> Vec<f64> {
@@ -641,12 +640,46 @@ fn softmax_all(logits: &[f32; 5]) -> (usize, f32, [f64; 5]) {
     (best_idx, best_prob as f32, probs)
 }
 
-fn robust_clip(value: f64) -> f64 {
-    if !value.is_finite() {
-        0.0
-    } else {
-        value.clamp(-500.0, 500.0)
+fn robust_signal_scale(input: &[f64]) -> f64 {
+    let mut absolute: Vec<f64> = input
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .map(f64::abs)
+        .collect();
+    if absolute.is_empty() {
+        return 0.0;
     }
+    absolute.sort_by(f64::total_cmp);
+    let middle = absolute.len() / 2;
+    let mad = if absolute.len() % 2 == 0 {
+        (absolute[middle - 1] + absolute[middle]) * 0.5
+    } else {
+        absolute[middle]
+    };
+    mad * 1.4826
+}
+
+fn scale_invariant_artifact_ratio(centered: &[f64], scale: f64) -> f64 {
+    if centered.is_empty() || scale < 1e-6 {
+        return 1.0;
+    }
+    let outliers = centered
+        .iter()
+        .filter(|value| !value.is_finite() || value.abs() > 10.0 * scale)
+        .count();
+    let mut finite: Vec<f64> = centered.iter().copied().filter(|v| v.is_finite()).collect();
+    if finite.is_empty() {
+        return 1.0;
+    }
+    finite.sort_by(f64::total_cmp);
+    let minimum = finite[0];
+    let maximum = finite[finite.len() - 1];
+    let rail = finite
+        .iter()
+        .filter(|&&value| value == minimum || value == maximum)
+        .count();
+    ((outliers + rail) as f64 / centered.len() as f64).clamp(0.0, 1.0)
 }
 
 fn bandpass_notch(
@@ -1039,6 +1072,35 @@ mod tests {
         assert_eq!(edf_record_layout(250.0), Some((250, 1.0)));
         assert_eq!(edf_record_layout(62.5), Some((125, 2.0)));
         assert_eq!(edf_record_layout(10.0), Some((10, 1.0)));
+    }
+
+    #[test]
+    fn edf_header_contains_standard_local_date_and_time() {
+        let header = edf_header("S001", 1, 250, 1.0, -1, None, None, None, None, None, None);
+        let date = std::str::from_utf8(&header[168..176]).unwrap();
+        let time = std::str::from_utf8(&header[176..184]).unwrap();
+        assert_eq!(date.len(), 8);
+        assert_eq!(time.len(), 8);
+        assert_eq!(date.as_bytes()[2], b'.');
+        assert_eq!(date.as_bytes()[5], b'.');
+        assert_eq!(time.as_bytes()[2], b'.');
+        assert_eq!(time.as_bytes()[5], b'.');
+    }
+
+    #[test]
+    fn model_preprocessing_is_invariant_to_legacy_gain_errors() {
+        let epoch: Vec<f64> = (0..7500)
+            .map(|i| (2.0 * std::f64::consts::PI * 9.0 * i as f64 / 250.0).sin() * 35.0)
+            .collect();
+        let current = prepare_model_epoch(&epoch, 250.0);
+        let legacy: Vec<f64> = epoch.iter().map(|value| value * 100.0).collect();
+        let legacy = prepare_model_epoch(&legacy, 250.0);
+        let largest_difference = current
+            .iter()
+            .zip(legacy.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(largest_difference < 0.0001);
     }
 
     #[test]

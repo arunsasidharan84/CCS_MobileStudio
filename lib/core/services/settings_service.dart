@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/lsl_config.dart';
 import '../models/module_type.dart';
 import '../models/device_profile.dart';
+import '../models/manual_marker.dart';
 import 'file_naming_service.dart';
 
 const List<String> kDefaultEpiDomeLabels = [
@@ -79,6 +80,14 @@ class SettingsService extends ChangeNotifier {
   Map<String, String> displayMontageReferences = {};
   List<String> displayHiddenChannelLabels = [];
   Map<String, Map<String, dynamic>> viewerDisplayProfiles = {};
+  double waveformStrokeWidth = 1.5;
+  int waveformColorValue = 0xFF14B8A6;
+
+  // Named marker banks are shared by every live waveform viewer.
+  String activeMarkerProfile = 'Default';
+  Map<String, List<ManualMarkerDefinition>> markerProfiles = {
+    'Default': List<ManualMarkerDefinition>.from(kDefaultManualMarkers),
+  };
 
   // ── Train NIDRA auditory closed-loop stimulation ─────────────────────────
   bool nidraStimEnabled = false;
@@ -97,6 +106,7 @@ class SettingsService extends ChangeNotifier {
   bool nidraStimNotifyBeep = true;
   bool nidraStimNotifyFlash = true;
   int nidraStimNotificationIntervalSecs = 5;
+  int nidraStimMarkerCode = 40;
   String nidraScoringSignalLabel = '';
   String nidraScoringReferenceLabel = '';
   String nidraChartMode = 'hypnogram';
@@ -121,6 +131,7 @@ class SettingsService extends ChangeNotifier {
     ModuleType.standalone,
     ModuleType.nidra,
     ModuleType.angel,
+    ModuleType.erp,
     ModuleType.wm,
     ModuleType.heartsync,
   ];
@@ -138,6 +149,21 @@ class SettingsService extends ChangeNotifier {
   bool angelLevel2Cd = true;
   bool angelIntermixLevelBlocks = true;
   bool angelRecordEeg = true;
+  String angelVisualStimulusFolder = '';
+  String angelAuditoryStimulusFolder = '';
+  Map<String, List<String>> angelStimulusFiles = {};
+  String angelRealtimeErpComponent = 'N170';
+
+  String genericErpParadigm = 'Visual Oddball';
+  String genericErpComponent = 'P300';
+  int genericErpTrials = 60;
+  int genericErpIntervalMs = 1000;
+  double genericErpRareProbability = 0.2;
+  String genericErpFrequentFilePath = '';
+  String genericErpRareFilePath = '';
+  int genericErpFrequentMarker = 101;
+  int genericErpRareMarker = 102;
+  bool genericErpShowRealtime = true;
 
   int wmTotalTrials = 60;
   int wmFixationDurationMs = 500;
@@ -151,6 +177,10 @@ class SettingsService extends ChangeNotifier {
   int heartSyncTrialsPerBlock = 25;
   int heartSyncBlocks = 4;
   String heartSyncPulseMode = 'ppg';
+  String heartSyncInputMode = 'live';
+  String heartSyncReplayFilePath = '';
+  bool heartSyncShowLiveWaveform = true;
+  double heartSyncWaveformSeconds = 10;
   String heartSyncChannelName = 'PPG';
   String heartSyncStimulusMode = 'tones';
   double heartSyncFrequentToneHz = 800;
@@ -163,6 +193,10 @@ class SettingsService extends ChangeNotifier {
   int heartSyncMinSkippedBeats = 2;
   int heartSyncMaxSkippedBeats = 5;
   int heartSyncIpiHistoryLength = 5;
+  double heartSyncPpgThresholdSigma = 0.6;
+  double heartSyncEcgThresholdSigma = 2.5;
+  double heartSyncDetectionHighPassHz = 0.5;
+  double heartSyncDetectionLowPassHz = 8;
   double heartSyncSystolicOffsetPercent = 0;
   double heartSyncDiastolicOffsetPercent = 45;
   int heartSyncDetectionLagMs = 0;
@@ -240,6 +274,14 @@ class SettingsService extends ChangeNotifier {
       waveformViewMode = json['waveformViewMode'] == 'page'
           ? 'page'
           : 'rolling';
+      waveformStrokeWidth =
+          ((json['waveformStrokeWidth'] as num?)?.toDouble() ?? 1.5).clamp(
+            0.5,
+            5.0,
+          );
+      waveformColorValue =
+          (json['waveformColorValue'] as num?)?.toInt() ?? 0xFF14B8A6;
+      _loadMarkerProfiles(json);
       _loadDisplayFilters(json);
       _loadViewerDisplayProfiles(json);
       _loadNidraStimSettings(json);
@@ -317,6 +359,13 @@ class SettingsService extends ChangeNotifier {
     'ppgDisplayScale': ppgDisplayScale,
     'waveformAutoscaleV2': waveformAutoscaleV2,
     'waveformViewMode': waveformViewMode,
+    'waveformStrokeWidth': waveformStrokeWidth,
+    'waveformColorValue': waveformColorValue,
+    'activeMarkerProfile': activeMarkerProfile,
+    'markerProfiles': markerProfiles.map(
+      (name, markers) =>
+          MapEntry(name, markers.map((marker) => marker.toJson()).toList()),
+    ),
     'eegDisplayHighPassHz': eegDisplayHighPassHz,
     'eegDisplayLowPassHz': eegDisplayLowPassHz,
     'eogDisplayHighPassHz': eogDisplayHighPassHz,
@@ -345,6 +394,7 @@ class SettingsService extends ChangeNotifier {
     'nidraStimNotifyBeep': nidraStimNotifyBeep,
     'nidraStimNotifyFlash': nidraStimNotifyFlash,
     'nidraStimNotificationIntervalSecs': nidraStimNotificationIntervalSecs,
+    'nidraStimMarkerCode': nidraStimMarkerCode,
     'nidraScoringSignalLabel': nidraScoringSignalLabel,
     'nidraScoringReferenceLabel': nidraScoringReferenceLabel,
     'nidraChartMode': nidraChartMode,
@@ -370,6 +420,20 @@ class SettingsService extends ChangeNotifier {
     'angelLevel2Cd': angelLevel2Cd,
     'angelIntermixLevelBlocks': angelIntermixLevelBlocks,
     'angelRecordEeg': angelRecordEeg,
+    'angelVisualStimulusFolder': angelVisualStimulusFolder,
+    'angelAuditoryStimulusFolder': angelAuditoryStimulusFolder,
+    'angelStimulusFiles': angelStimulusFiles,
+    'angelRealtimeErpComponent': angelRealtimeErpComponent,
+    'genericErpParadigm': genericErpParadigm,
+    'genericErpComponent': genericErpComponent,
+    'genericErpTrials': genericErpTrials,
+    'genericErpIntervalMs': genericErpIntervalMs,
+    'genericErpRareProbability': genericErpRareProbability,
+    'genericErpFrequentFilePath': genericErpFrequentFilePath,
+    'genericErpRareFilePath': genericErpRareFilePath,
+    'genericErpFrequentMarker': genericErpFrequentMarker,
+    'genericErpRareMarker': genericErpRareMarker,
+    'genericErpShowRealtime': genericErpShowRealtime,
     'wmTotalTrials': wmTotalTrials,
     'wmFixationDurationMs': wmFixationDurationMs,
     'wmCueDurationMs': wmCueDurationMs,
@@ -381,6 +445,10 @@ class SettingsService extends ChangeNotifier {
     'heartSyncTrialsPerBlock': heartSyncTrialsPerBlock,
     'heartSyncBlocks': heartSyncBlocks,
     'heartSyncPulseMode': heartSyncPulseMode,
+    'heartSyncInputMode': heartSyncInputMode,
+    'heartSyncReplayFilePath': heartSyncReplayFilePath,
+    'heartSyncShowLiveWaveform': heartSyncShowLiveWaveform,
+    'heartSyncWaveformSeconds': heartSyncWaveformSeconds,
     'heartSyncChannelName': heartSyncChannelName,
     'heartSyncStimulusMode': heartSyncStimulusMode,
     'heartSyncFrequentToneHz': heartSyncFrequentToneHz,
@@ -393,6 +461,10 @@ class SettingsService extends ChangeNotifier {
     'heartSyncMinSkippedBeats': heartSyncMinSkippedBeats,
     'heartSyncMaxSkippedBeats': heartSyncMaxSkippedBeats,
     'heartSyncIpiHistoryLength': heartSyncIpiHistoryLength,
+    'heartSyncPpgThresholdSigma': heartSyncPpgThresholdSigma,
+    'heartSyncEcgThresholdSigma': heartSyncEcgThresholdSigma,
+    'heartSyncDetectionHighPassHz': heartSyncDetectionHighPassHz,
+    'heartSyncDetectionLowPassHz': heartSyncDetectionLowPassHz,
     'heartSyncSystolicOffsetPercent': heartSyncSystolicOffsetPercent,
     'heartSyncDiastolicOffsetPercent': heartSyncDiastolicOffsetPercent,
     'heartSyncDetectionLagMs': heartSyncDetectionLagMs,
@@ -559,6 +631,13 @@ class SettingsService extends ChangeNotifier {
           ? 'page'
           : 'rolling';
     }
+    waveformStrokeWidth =
+        ((json['waveformStrokeWidth'] as num?)?.toDouble() ??
+                waveformStrokeWidth)
+            .clamp(0.5, 5.0);
+    waveformColorValue =
+        (json['waveformColorValue'] as num?)?.toInt() ?? waveformColorValue;
+    _loadMarkerProfiles(json);
     _loadDisplayFilters(json);
     _loadViewerDisplayProfiles(json);
     _loadNidraStimSettings(json);
@@ -711,6 +790,9 @@ class SettingsService extends ChangeNotifier {
         ((json['nidraStimNotificationIntervalSecs'] as num?)?.round() ??
                 nidraStimNotificationIntervalSecs)
             .clamp(1, 60);
+    nidraStimMarkerCode =
+        ((json['nidraStimMarkerCode'] as num?)?.round() ?? nidraStimMarkerCode)
+            .clamp(1, 32767);
     nidraScoringSignalLabel =
         (json['nidraScoringSignalLabel'] as String?) ?? nidraScoringSignalLabel;
     nidraScoringReferenceLabel =
@@ -732,6 +814,46 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
+  void _loadMarkerProfiles(Map<String, dynamic> json) {
+    final rawProfiles = json['markerProfiles'];
+    if (rawProfiles is Map) {
+      final parsed = <String, List<ManualMarkerDefinition>>{};
+      for (final entry in rawProfiles.entries) {
+        if (entry.value is! List) continue;
+        final markers = (entry.value as List)
+            .whereType<Map>()
+            .map(
+              (value) => ManualMarkerDefinition.fromJson(
+                Map<String, dynamic>.from(value),
+              ),
+            )
+            .toList();
+        if (markers.isNotEmpty) parsed[entry.key.toString()] = markers;
+      }
+      if (parsed.isNotEmpty) markerProfiles = parsed;
+    }
+    final selected = json['activeMarkerProfile']?.toString();
+    activeMarkerProfile = markerProfiles.containsKey(selected)
+        ? selected!
+        : markerProfiles.keys.first;
+  }
+
+  List<ManualMarkerDefinition> get activeManualMarkers => List.unmodifiable(
+    markerProfiles[activeMarkerProfile] ?? kDefaultManualMarkers,
+  );
+
+  void saveMarkerProfile(
+    String name,
+    List<ManualMarkerDefinition> markers, {
+    bool makeActive = true,
+  }) {
+    final cleanName = name.trim().isEmpty ? 'Default' : name.trim();
+    markerProfiles[cleanName] = List<ManualMarkerDefinition>.from(markers);
+    if (makeActive) activeMarkerProfile = cleanName;
+    notifyListeners();
+    save();
+  }
+
   void _loadParadigmDefaults(Map<String, dynamic> json) {
     angelLevel = (json['angelLevel'] as String?) ?? angelLevel;
     angelLanguage = (json['angelLanguage'] as String?) ?? angelLanguage;
@@ -751,6 +873,51 @@ class SettingsService extends ChangeNotifier {
     angelIntermixLevelBlocks =
         (json['angelIntermixLevelBlocks'] as bool?) ?? angelIntermixLevelBlocks;
     angelRecordEeg = (json['angelRecordEeg'] as bool?) ?? angelRecordEeg;
+    angelVisualStimulusFolder =
+        (json['angelVisualStimulusFolder'] as String?) ??
+        angelVisualStimulusFolder;
+    angelAuditoryStimulusFolder =
+        (json['angelAuditoryStimulusFolder'] as String?) ??
+        angelAuditoryStimulusFolder;
+    angelStimulusFiles = _stringListMap(
+      json['angelStimulusFiles'],
+      angelStimulusFiles,
+    );
+    angelRealtimeErpComponent =
+        (json['angelRealtimeErpComponent'] as String?) ??
+        angelRealtimeErpComponent;
+    genericErpParadigm =
+        (json['genericErpParadigm'] as String?) ?? genericErpParadigm;
+    genericErpComponent =
+        (json['genericErpComponent'] as String?) ?? genericErpComponent;
+    genericErpTrials =
+        ((json['genericErpTrials'] as num?)?.round() ?? genericErpTrials).clamp(
+          10,
+          1000,
+        );
+    genericErpIntervalMs =
+        ((json['genericErpIntervalMs'] as num?)?.round() ??
+                genericErpIntervalMs)
+            .clamp(200, 10000);
+    genericErpRareProbability =
+        ((json['genericErpRareProbability'] as num?)?.toDouble() ??
+                genericErpRareProbability)
+            .clamp(0.05, 0.5);
+    genericErpFrequentFilePath =
+        (json['genericErpFrequentFilePath'] as String?) ??
+        genericErpFrequentFilePath;
+    genericErpRareFilePath =
+        (json['genericErpRareFilePath'] as String?) ?? genericErpRareFilePath;
+    genericErpFrequentMarker =
+        ((json['genericErpFrequentMarker'] as num?)?.round() ??
+                genericErpFrequentMarker)
+            .clamp(1, 32767);
+    genericErpRareMarker =
+        ((json['genericErpRareMarker'] as num?)?.round() ??
+                genericErpRareMarker)
+            .clamp(1, 32767);
+    genericErpShowRealtime =
+        (json['genericErpShowRealtime'] as bool?) ?? genericErpShowRealtime;
 
     wmTotalTrials = (json['wmTotalTrials'] as int?) ?? wmTotalTrials;
     wmFixationDurationMs =
@@ -771,6 +938,16 @@ class SettingsService extends ChangeNotifier {
     heartSyncBlocks = (json['heartSyncBlocks'] as int?) ?? heartSyncBlocks;
     heartSyncPulseMode =
         (json['heartSyncPulseMode'] as String?) ?? heartSyncPulseMode;
+    heartSyncInputMode =
+        (json['heartSyncInputMode'] as String?) ?? heartSyncInputMode;
+    heartSyncReplayFilePath =
+        (json['heartSyncReplayFilePath'] as String?) ?? heartSyncReplayFilePath;
+    heartSyncShowLiveWaveform =
+        (json['heartSyncShowLiveWaveform'] as bool?) ??
+        heartSyncShowLiveWaveform;
+    heartSyncWaveformSeconds =
+        (json['heartSyncWaveformSeconds'] as num?)?.toDouble() ??
+        heartSyncWaveformSeconds;
     heartSyncChannelName =
         (json['heartSyncChannelName'] as String?) ?? heartSyncChannelName;
     heartSyncStimulusMode =
@@ -800,6 +977,18 @@ class SettingsService extends ChangeNotifier {
     heartSyncIpiHistoryLength =
         (json['heartSyncIpiHistoryLength'] as int?) ??
         heartSyncIpiHistoryLength;
+    heartSyncPpgThresholdSigma =
+        (json['heartSyncPpgThresholdSigma'] as num?)?.toDouble() ??
+        heartSyncPpgThresholdSigma;
+    heartSyncEcgThresholdSigma =
+        (json['heartSyncEcgThresholdSigma'] as num?)?.toDouble() ??
+        heartSyncEcgThresholdSigma;
+    heartSyncDetectionHighPassHz =
+        (json['heartSyncDetectionHighPassHz'] as num?)?.toDouble() ??
+        heartSyncDetectionHighPassHz;
+    heartSyncDetectionLowPassHz =
+        (json['heartSyncDetectionLowPassHz'] as num?)?.toDouble() ??
+        heartSyncDetectionLowPassHz;
     heartSyncSystolicOffsetPercent =
         (json['heartSyncSystolicOffsetPercent'] as num?)?.toDouble() ??
         heartSyncSystolicOffsetPercent;
@@ -960,6 +1149,7 @@ class SettingsService extends ChangeNotifier {
             ModuleType.standalone,
             ModuleType.nidra,
             ModuleType.angel,
+            ModuleType.erp,
             ModuleType.wm,
             ModuleType.heartsync,
           ]
@@ -972,6 +1162,7 @@ class SettingsService extends ChangeNotifier {
             ModuleType.standalone,
             ModuleType.nidra,
             ModuleType.angel,
+            ModuleType.erp,
             ModuleType.wm,
             ModuleType.heartsync,
           ]

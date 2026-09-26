@@ -99,11 +99,17 @@ class EdfRecorder extends ChangeNotifier {
       transducers: labels.map(transducer).toList(growable: false),
       physicalMinimums: labels
           .map(
-            (label) => isPpg(label) ? -32768.0 : (isOrbit ? -15000.0 : -3000.0),
+            // Orbit exposes the ADS1299's full input range (~±188 mV at the
+            // configured gain). Use the full hardware envelope so an electrode
+            // transient cannot be silently clipped in EDF.
+            (label) =>
+                isPpg(label) ? -32768.0 : (isOrbit ? -190000.0 : -3000.0),
           )
           .toList(growable: false),
       physicalMaximums: labels
-          .map((label) => isPpg(label) ? 32767.0 : (isOrbit ? 15000.0 : 3000.0))
+          .map(
+            (label) => isPpg(label) ? 32767.0 : (isOrbit ? 190000.0 : 3000.0),
+          )
           .toList(growable: false),
     );
   }

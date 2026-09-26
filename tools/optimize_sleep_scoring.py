@@ -123,7 +123,12 @@ class TrainNidraPreprocessor:
             self.high_previous_y = high
             self.low_state += lp_alpha * (high - self.low_state)
             filtered[index] = self.low_state
-        filtered = np.clip(filtered, -500.0, 500.0)
+        robust_sigma = np.median(np.abs(filtered)) * 1.4826
+        if robust_sigma < 1e-6:
+            return np.zeros(3000, dtype=np.float32)
+        # Match the scale-invariant Rust path. This deliberately tolerates old
+        # app EDFs written with count-like or 100× gain while suppressing spikes.
+        filtered = np.clip(filtered, -10 * robust_sigma, 10 * robust_sigma)
         source_positions = np.arange(filtered.size, dtype=np.float64)
         target_positions = np.linspace(0, filtered.size - 1, 3000)
         model_epoch = np.interp(target_positions, source_positions, filtered)
@@ -188,6 +193,16 @@ def candidate_derivations(labels: list[str]) -> list[Derivation]:
         for label in ("Fz", "C3", "C4"):
             if label in labels:
                 candidates.append(Derivation(label, "M1"))
+    for signal, reference in (
+        ("F3", "A2"),
+        ("F4", "A1"),
+        ("C3", "A2"),
+        ("C4", "A1"),
+        ("O1", "A2"),
+        ("O2", "A1"),
+    ):
+        if signal in labels and reference in labels:
+            candidates.append(Derivation(signal, reference))
     return candidates
 
 

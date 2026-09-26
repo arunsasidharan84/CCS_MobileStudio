@@ -3,6 +3,21 @@ import 'dart:math';
 
 import 'models.dart';
 
+/// One causal beat decision with both clocks needed to audit real-time delay.
+///
+/// [peakAt] is the timestamp of the PPG/ECG sample at the detected fiducial.
+/// [detectedAt] is when the app had enough information to confirm that peak.
+/// Their difference includes the one-sample confirmation delay, BLE delivery,
+/// event-loop dispatch, and any clock reconstruction error.
+class CardiacBeatDetection {
+  const CardiacBeatDetection({required this.peakAt, required this.detectedAt});
+
+  final DateTime peakAt;
+  final DateTime detectedAt;
+
+  double get latencyMs => detectedAt.difference(peakAt).inMicroseconds / 1000;
+}
+
 /// Low-allocation causal detector for real-time PPG pulses or ECG R-waves.
 /// Post-task assignment deliberately uses a separate, zero-phase-style pass.
 class CardiacDetector {
@@ -29,6 +44,10 @@ class CardiacDetector {
   }
 
   DateTime? add(CardiacSample sample) {
+    return addDetailed(sample)?.peakAt;
+  }
+
+  CardiacBeatDetection? addDetailed(CardiacSample sample) {
     final raw = config.pulseMode == HeartSyncPulseMode.ppg
         ? sample.value
         : sample.value.abs();
@@ -44,8 +63,8 @@ class CardiacDetector {
     _previousTimestamp = sample.timestamp;
     if (previousRaw == null) return null;
 
-    final highPassRc = 1 / (2 * pi * 0.5);
-    final lowPassRc = 1 / (2 * pi * 8.0);
+    final highPassRc = 1 / (2 * pi * config.detectionHighPassHz);
+    final lowPassRc = 1 / (2 * pi * config.detectionLowPassHz);
     _highPassed =
         highPassRc / (highPassRc + dt) * (_highPassed + raw - previousRaw);
     _filtered += dt / (lowPassRc + dt) * (_highPassed - _filtered);
@@ -61,7 +80,10 @@ class CardiacDetector {
     final robustSd = max((p75 - p25) / 1.349, 1e-9);
     final threshold =
         median +
-        robustSd * (config.pulseMode == HeartSyncPulseMode.ecg ? 2.5 : 0.6);
+        robustSd *
+            (config.pulseMode == HeartSyncPulseMode.ecg
+                ? config.ecgThresholdSigma
+                : config.ppgThresholdSigma);
     if (_filtered < median - robustSd * 0.1) _armed = true;
     final confirmedPeak = previousFiltered > _filtered;
     if (!_armed || !confirmedPeak || previousFiltered < threshold) return null;
@@ -85,6 +107,9 @@ class CardiacDetector {
     }
     _lastPeak = peakTimestamp;
     _armed = false;
-    return peakTimestamp;
+    return CardiacBeatDetection(
+      peakAt: peakTimestamp,
+      detectedAt: DateTime.now(),
+    );
   }
 }

@@ -52,6 +52,11 @@ class SessionManager extends ChangeNotifier {
   StreamSubscription<SignalStreamSample>? _multiDeviceSampleSub;
   final Map<String, SignalStreamEdfRecorder> _streamRecorders = {};
   final List<StreamMarker> _markerLog = [];
+  final StreamController<StreamMarker> _eventMarkers =
+      StreamController<StreamMarker>.broadcast();
+
+  Stream<StreamMarker> get eventMarkers => _eventMarkers.stream;
+  List<StreamMarker> get markerLog => List.unmodifiable(_markerLog);
   Timer? _durationTicker;
 
   AcquisitionState? _lastAcqState;
@@ -314,22 +319,47 @@ class SessionManager extends ChangeNotifier {
     enabledChannels: enabledChannels,
   );
 
-  void recordEvent(String label, int code, {StreamMarker? marker}) {
+  void recordEvent(
+    String label,
+    int code, {
+    StreamMarker? marker,
+    DateTime? occurredAt,
+  }) {
     _recorder?.setMarker(code);
     for (final recorder in _streamRecorders.values) {
       recorder.setMarker(code);
     }
-    _markerLog.add(
-      marker ??
-          StreamMarker(
-            streamId: 'manual',
-            source: 'CCS Mobile Studio',
-            value: label,
-            code: code,
-            receivedAt: DateTime.now(),
-          ),
-    );
+    final recorded =
+        marker ??
+        StreamMarker(
+          streamId: 'manual',
+          source: 'CCS Mobile Studio',
+          value: label,
+          code: code,
+          receivedAt: occurredAt ?? DateTime.now(),
+        );
+    _markerLog.add(recorded);
+    _eventMarkers.add(recorded);
     debugPrint('[SessionManager] Event: $label ($code)');
+  }
+
+  /// Changes the human-readable label of an event that has already been sent.
+  /// The EDF code remains unchanged; the revised label is used by the live plot
+  /// and marker CSV export.
+  void renameEvent(StreamMarker marker, String label) {
+    final clean = label.trim();
+    if (clean.isEmpty) return;
+    final index = _markerLog.indexWhere(
+      (item) =>
+          item.receivedAt == marker.receivedAt &&
+          item.code == marker.code &&
+          item.streamId == marker.streamId,
+    );
+    if (index < 0) return;
+    final renamed = _markerLog[index].copyWith(value: clean);
+    _markerLog[index] = renamed;
+    _eventMarkers.add(renamed);
+    notifyListeners();
   }
 
   Future<void> _stopCurrentSegment() async {
@@ -549,6 +579,7 @@ class SessionManager extends ChangeNotifier {
     }
     _stopDurationTicker();
     unawaited(DeviceAwakeService.reset());
+    _eventMarkers.close();
     super.dispose();
   }
 }

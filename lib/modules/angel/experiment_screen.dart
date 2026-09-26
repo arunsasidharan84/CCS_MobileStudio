@@ -14,6 +14,8 @@ import '../../core/services/session_manager.dart';
 import '../home/home_screen.dart';
 import 'erp_engine.dart';
 import 'summary_report_service.dart';
+import '../generic_erp/erp_averager.dart';
+import '../generic_erp/generic_erp_screen.dart';
 
 class ExperimentScreen extends StatefulWidget {
   const ExperimentScreen({
@@ -45,6 +47,10 @@ class ExperimentScreen extends StatefulWidget {
     this.audioInstructionsEnabled = true,
     this.channelLabels,
     this.enabledChannels,
+    this.visualStimulusFolder = '',
+    this.auditoryStimulusFolder = '',
+    this.stimulusFiles = const {},
+    this.erpComponent = 'N170',
   });
 
   final SessionManager sessionManager;
@@ -74,6 +80,10 @@ class ExperimentScreen extends StatefulWidget {
   final bool audioInstructionsEnabled;
   final List<String>? channelLabels;
   final List<bool>? enabledChannels;
+  final String visualStimulusFolder;
+  final String auditoryStimulusFolder;
+  final Map<String, List<String>> stimulusFiles;
+  final String erpComponent;
 
   @override
   State<ExperimentScreen> createState() => _ExperimentScreenState();
@@ -82,6 +92,8 @@ class ExperimentScreen extends StatefulWidget {
 class _ExperimentScreenState extends State<ExperimentScreen> {
   late final ErpEngine _erpEngine;
   StreamSubscription<AcquisitionState>? _acqStateSub;
+  StreamSubscription? _erpSampleSub;
+  late final ErpAverager _realtimeErp;
 
   bool _isLoading = true;
   String _loadingMessage = 'Loading EEG/EDF pipeline...';
@@ -122,7 +134,16 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
       cdSchedule: widget.cdSchedule,
       excludePractice: widget.excludePractice,
       guideAudioEnabled: widget.audioInstructionsEnabled,
+      visualStimulusFolder: widget.visualStimulusFolder,
+      auditoryStimulusFolder: widget.auditoryStimulusFolder,
+      stimulusFiles: widget.stimulusFiles,
     );
+    _realtimeErp = ErpAverager(
+      sampleRate: widget.acquisitionService.sampleRate,
+    );
+    _erpSampleSub = widget.acquisitionService.samples.listen((sample) {
+      if (_realtimeErp.push(sample) && mounted) setState(() {});
+    });
 
     _erpEngine.onStateChanged = () {
       if (mounted) {
@@ -140,6 +161,11 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
       );
       if (widget.recordEeg) {
         widget.sessionManager.recordEvent(event.label, event.code);
+      }
+      if (event.code == MarkerCodes.visualFrequent) {
+        _realtimeErp.mark('Frequent');
+      } else if (event.code == MarkerCodes.visualRare) {
+        _realtimeErp.mark('Rare');
       }
     };
 
@@ -211,6 +237,7 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
   @override
   void dispose() {
     _acqStateSub?.cancel();
+    _erpSampleSub?.cancel();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -557,6 +584,23 @@ class _ExperimentScreenState extends State<ExperimentScreen> {
                     onPressed: _showExitConfirmation,
                   ),
                 ),
+                if (_realtimeErp.averages.isNotEmpty)
+                  Positioned(
+                    left: 12,
+                    bottom: 12,
+                    width: 300,
+                    height: 150,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: ErpWaveformPlot(
+                        averages: _realtimeErp.averages,
+                        sampleRate: widget.acquisitionService.sampleRate,
+                        component: widget.erpComponent,
+                      ),
+                    ),
+                  ),
                 if (_waitingForReconnect) _buildConnectionLostOverlay(),
               ],
             ),

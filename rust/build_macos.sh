@@ -6,19 +6,18 @@ MANIFEST="$ROOT_DIR/rust/Cargo.toml"
 BUILD_MODE="${1:-release}"
 
 if [[ "$BUILD_MODE" == "debug" ]]; then
-  CARGO_FLAGS=()
   PROFILE_DIR="debug"
 else
-  CARGO_FLAGS=(--release)
   PROFILE_DIR="release"
 fi
 
 TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 for TARGET in "${TARGETS[@]}"; do
-  cargo build \
-    --manifest-path "$MANIFEST" \
-    --target "$TARGET" \
-    "${CARGO_FLAGS[@]}"
+  if [[ "$BUILD_MODE" == "debug" ]]; then
+    cargo build --manifest-path "$MANIFEST" --target "$TARGET"
+  else
+    cargo build --manifest-path "$MANIFEST" --target "$TARGET" --release
+  fi
 done
 
 OUTPUT_DIR="$ROOT_DIR/rust/target/macos-universal/$PROFILE_DIR"

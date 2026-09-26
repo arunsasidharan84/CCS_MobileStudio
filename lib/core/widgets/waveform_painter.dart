@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+import '../models/stream_marker.dart';
+
 /// Custom painter for multi-channel EEG waveforms.
 /// Supports stacked (separate lanes) or overlaid viewing, autoscale vs fixed gain,
 /// custom channel labels, and grid rendering.
@@ -16,6 +18,10 @@ class WaveformPainter extends CustomPainter {
     required this.autoscale,
     this.channelLabels,
     this.channelScaleFactors,
+    this.markers = const [],
+    this.traceColor,
+    this.strokeWidth = 1.5,
+    this.now,
   });
 
   final List<List<double>> channels;
@@ -28,6 +34,10 @@ class WaveformPainter extends CustomPainter {
   final bool autoscale;
   final List<String>? channelLabels;
   final List<double>? channelScaleFactors;
+  final List<StreamMarker> markers;
+  final Color? traceColor;
+  final double strokeWidth;
+  final DateTime? now;
 
   static const colors = [
     Color(0xFF14B8A6), // Teal
@@ -112,12 +122,12 @@ class WaveformPainter extends CustomPainter {
         i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
       }
 
-      final color = colors[channel % colors.length];
+      final color = traceColor ?? colors[channel % colors.length];
       canvas.drawPath(
         path,
         Paint()
           ..color = color
-          ..strokeWidth = stacked ? 1.2 : 1.6
+          ..strokeWidth = strokeWidth
           ..style = PaintingStyle.stroke
           ..strokeJoin = StrokeJoin.round,
       );
@@ -138,6 +148,43 @@ class WaveformPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       label.paint(canvas, Offset(6, centerY - label.height - 3));
+    }
+
+    _paintMarkers(canvas, size);
+  }
+
+  void _paintMarkers(Canvas canvas, Size size) {
+    if (markers.isEmpty || durationSeconds <= 0) return;
+    final reference = now ?? DateTime.now();
+    for (final marker in markers) {
+      final age = reference.difference(marker.receivedAt).inMicroseconds / 1e6;
+      if (age < -0.25 || age > durationSeconds) continue;
+      final x = (size.width * (1 - age / durationSeconds)).clamp(
+        0.0,
+        size.width,
+      );
+      final paint = Paint()
+        ..color = const Color(0xFFFFB74D)
+        ..strokeWidth = 1.5;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      final label = TextPainter(
+        text: TextSpan(
+          text: '${marker.value} (${marker.code})',
+          style: const TextStyle(
+            color: Color(0xFFFFD180),
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            backgroundColor: Color(0xB3111827),
+          ),
+        ),
+        maxLines: 1,
+        ellipsis: '…',
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 120);
+      label.paint(
+        canvas,
+        Offset((x + 3).clamp(0, size.width - label.width), 3),
+      );
     }
   }
 

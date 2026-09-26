@@ -95,4 +95,18 @@ void main() {
     expect(service.statusText, contains('Poor signal'));
     service.dispose();
   });
+
+  testWidgets('manual Send Stimulus emits a recording marker callback', (
+    tester,
+  ) async {
+    final service = AuditoryStimService(alertService: AlertService());
+    configureManual(service);
+    String? marker;
+    service.onStimulusPresented = (label) => marker = label;
+
+    await service.sendStimulus();
+
+    expect(marker, 'nidra_stimulus_manual');
+    service.dispose();
+  });
 }

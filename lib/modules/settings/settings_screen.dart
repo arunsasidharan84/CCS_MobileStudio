@@ -9,6 +9,7 @@ import '../../core/services/alert_service.dart';
 import '../../core/services/permission_service.dart';
 import '../../core/models/module_type.dart';
 import '../../core/models/device_profile.dart';
+import '../../core/models/manual_marker.dart';
 import '../../core/eeg/acquisition_service.dart';
 
 /// Global settings & channel configuration screen.
@@ -764,6 +765,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           _buildTextScaleTile(settings, lightTeal),
           const SizedBox(height: 16),
           _buildWaveformDisplayTile(settings, lightTeal),
+          const SizedBox(height: 16),
+          _buildMarkerProfilesTile(settings, lightTeal),
           const SizedBox(height: 32),
           const Text(
             'BLE Target Device Configuration',
@@ -1266,6 +1269,186 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  Widget _buildMarkerProfilesTile(SettingsService settings, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Manual marker profiles',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Text(
+            'The active bank appears in every live EEG viewer. Names remain editable after an event is sent.',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: settings.activeMarkerProfile,
+                  dropdownColor: const Color(0xFF1E293B),
+                  decoration: const InputDecoration(
+                    labelText: 'Active profile',
+                  ),
+                  items: settings.markerProfiles.keys
+                      .map(
+                        (name) =>
+                            DropdownMenuItem(value: name, child: Text(name)),
+                      )
+                      .toList(),
+                  onChanged: (name) {
+                    if (name != null) {
+                      settings.update((s) => s.activeMarkerProfile = name);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              FilledButton.icon(
+                onPressed: () => _editMarkerProfile(settings),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: settings.activeManualMarkers
+                .map(
+                  (marker) => Chip(
+                    avatar: CircleAvatar(backgroundColor: marker.color),
+                    label: Text('${marker.name} (${marker.code})'),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editMarkerProfile(SettingsService settings) async {
+    final profileName = TextEditingController(
+      text: settings.activeMarkerProfile,
+    );
+    final markers = settings.activeManualMarkers
+        .map((marker) => marker.copyWith())
+        .toList();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, updateDialog) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text('Edit marker profile'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: profileName,
+                    decoration: const InputDecoration(
+                      labelText: 'Profile name',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  for (var index = 0; index < markers.length; index++)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            key: ValueKey(
+                              'marker-name-$index-${markers[index].name}',
+                            ),
+                            initialValue: markers[index].name,
+                            decoration: const InputDecoration(
+                              labelText: 'Name',
+                            ),
+                            onChanged: (value) => markers[index] =
+                                markers[index].copyWith(name: value),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 100,
+                          child: TextFormField(
+                            key: ValueKey(
+                              'marker-code-$index-${markers[index].code}',
+                            ),
+                            initialValue: markers[index].code.toString(),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Code',
+                            ),
+                            onChanged: (value) {
+                              final code = int.tryParse(value);
+                              if (code != null) {
+                                markers[index] = markers[index].copyWith(
+                                  code: code.clamp(1, 32767),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              updateDialog(() => markers.removeAt(index)),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
+                  TextButton.icon(
+                    onPressed: () => updateDialog(
+                      () => markers.add(
+                        ManualMarkerDefinition(
+                          name: 'New marker',
+                          code: markers.isEmpty ? 1 : markers.last.code + 1,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add marker'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: markers.isEmpty
+                  ? null
+                  : () {
+                      settings.saveMarkerProfile(profileName.text, markers);
+                      Navigator.pop(dialogContext);
+                    },
+              child: const Text('Save profile'),
+            ),
+          ],
+        ),
+      ),
+    );
+    profileName.dispose();
+  }
+
   Widget _buildDisconnectionTimeoutTile(SettingsService settings, Color color) {
     const options = [2, 3, 5, 8, 10, 15, 20, 30];
     final current = options.contains(settings.disconnectionTimeoutSeconds)
@@ -1457,6 +1640,45 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ],
               ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Trace thickness: ${settings.waveformStrokeWidth.toStringAsFixed(1)} px',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          Slider(
+            value: settings.waveformStrokeWidth,
+            min: 0.5,
+            max: 5,
+            divisions: 18,
+            activeColor: color,
+            onChanged: (value) =>
+                settings.update((s) => s.waveformStrokeWidth = value),
+          ),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Trace colour',
+                style: TextStyle(color: Colors.white70),
+              ),
+              for (final value in const [
+                0xFF14B8A6,
+                0xFF3B82F6,
+                0xFFF87171,
+                0xFFFBBF24,
+                0xFF8B5CF6,
+                0xFFFFFFFF,
+              ])
+                ChoiceChip(
+                  label: const SizedBox(width: 18, height: 18),
+                  avatar: CircleAvatar(backgroundColor: Color(value)),
+                  selected: settings.waveformColorValue == value,
+                  onSelected: (_) =>
+                      settings.update((s) => s.waveformColorValue = value),
+                ),
             ],
           ),
           _buildConfigScaleSlider(

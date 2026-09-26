@@ -9,6 +9,8 @@ import '../../core/services/multi_stream_lsl_service.dart';
 import '../../core/services/multi_device_acquisition_service.dart';
 import '../../core/models/module_type.dart';
 import '../../core/models/device_profile.dart';
+import '../../core/models/manual_marker.dart';
+import '../../core/models/stream_marker.dart';
 import '../../core/widgets/eeg_viewer.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import '../../core/services/settings_service.dart';
@@ -151,6 +153,7 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
   }
 
   Widget _buildMarkerControls(SessionManager sessionManager) {
+    final settings = context.watch<SettingsService>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -159,43 +162,119 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
           style: TextStyle(color: Colors.white70, fontSize: 12),
         ),
         const SizedBox(height: 6),
-        _buildMarkerButtons(sessionManager),
+        _buildMarkerButtons(sessionManager, settings.activeManualMarkers),
       ],
     );
   }
 
-  Widget _buildMarkerButtons(SessionManager sessionManager) {
+  Widget _buildMarkerButtons(
+    SessionManager sessionManager,
+    List<ManualMarkerDefinition> markers,
+  ) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: [1, 2, 3, 5, 10].map((code) {
+        children: markers.map((definition) {
           return Padding(
             padding: const EdgeInsets.only(right: 6),
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF3B82F6),
+                backgroundColor: definition.color,
                 foregroundColor: Colors.white,
-                minimumSize: const Size(44, 36),
-                padding: EdgeInsets.zero,
+                minimumSize: const Size(84, 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
               ),
               onPressed: () {
-                sessionManager.recordEvent('manual_marker_$code', code);
+                final event = StreamMarker(
+                  streamId: 'manual',
+                  source: 'CCS Mobile Studio',
+                  value: definition.name,
+                  code: definition.code,
+                  receivedAt: DateTime.now(),
+                );
+                sessionManager.recordEvent(
+                  definition.name,
+                  definition.code,
+                  marker: event,
+                );
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Tagged event marker M$code'),
-                    duration: const Duration(milliseconds: 600),
+                    content: Text(
+                      'Tagged ${definition.name} (${definition.code})',
+                    ),
+                    duration: const Duration(seconds: 4),
+                    action: SnackBarAction(
+                      label: 'Edit name',
+                      onPressed: () =>
+                          _editRecordedMarker(sessionManager, event),
+                    ),
                   ),
                 );
               },
-              child: Text(
-                'M$code',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 58, maxWidth: 126),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      definition.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Code ${definition.code}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
         }).toList(),
       ),
     );
+  }
+
+  Future<void> _editRecordedMarker(
+    SessionManager sessionManager,
+    StreamMarker marker,
+  ) async {
+    final controller = TextEditingController(text: marker.value);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Edit marker ${marker.code}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Marker name'),
+          onSubmitted: (text) => Navigator.pop(dialogContext, text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value != null) sessionManager.renameEvent(marker, value);
   }
 
   Widget _buildConnectedStreamTabs(
@@ -222,6 +301,7 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
           initialDurationSeconds: 4,
           showControls: true,
           showMetrics: true,
+          markerStream: context.read<SessionManager>().eventMarkers,
         ),
       ...secondary.map(
         (service) => EegViewer(
@@ -231,6 +311,7 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
           initialDurationSeconds: 4,
           showControls: true,
           showMetrics: true,
+          markerStream: context.read<SessionManager>().eventMarkers,
         ),
       ),
       ...entries.map((entry) {
@@ -244,6 +325,7 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
           initialDurationSeconds: 4,
           showControls: true,
           showMetrics: runtime.signalType != SignalType.fnirs,
+          markerStream: context.read<SessionManager>().eventMarkers,
         );
       }),
     ];
@@ -454,7 +536,10 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  _buildMarkerButtons(sessionManager),
+                                  _buildMarkerButtons(
+                                    sessionManager,
+                                    settings.activeManualMarkers,
+                                  ),
                                 ],
                               );
                             }
@@ -488,6 +573,18 @@ class _StandaloneScreenState extends State<StandaloneScreen> {
                         },
                       ),
                     ),
+                  if (widget.viewerOnly && isRecording) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: _buildMarkerControls(sessionManager),
+                    ),
+                  ],
                   const SizedBox(height: 16),
 
                   // Live Waveforms Viewer

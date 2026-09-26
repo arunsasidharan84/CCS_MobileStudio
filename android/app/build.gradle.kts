@@ -4,6 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseKeystorePath = System.getenv("CCS_ANDROID_KEYSTORE_PATH")
+val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank() &&
+    file(releaseKeystorePath).exists()
+
 android {
     namespace = "com.ccs.mobile_studio"
     compileSdk = 36
@@ -26,9 +30,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = System.getenv("CCS_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CCS_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("CCS_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                // Local development fallback only. Published APKs use the
+                // stable release key configured in GitHub Actions.
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

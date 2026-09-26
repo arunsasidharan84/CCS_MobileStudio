@@ -16,9 +16,11 @@ class HeartSyncScreen extends StatefulWidget {
 class _HeartSyncScreenState extends State<HeartSyncScreen> {
   final Map<String, TextEditingController> _fields = {};
   late HeartSyncPulseMode _pulseMode;
+  late HeartSyncInputMode _inputMode;
   late HeartSyncStimulusMode _stimulusMode;
   late bool _adaptive;
   late bool _record;
+  late bool _showWaveform;
   bool _loaded = false;
 
   TextEditingController _field(String key, Object value) =>
@@ -32,11 +34,15 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
     _pulseMode = s.heartSyncPulseMode == 'ecg'
         ? HeartSyncPulseMode.ecg
         : HeartSyncPulseMode.ppg;
+    _inputMode = s.heartSyncInputMode == 'replayFile'
+        ? HeartSyncInputMode.replayFile
+        : HeartSyncInputMode.live;
     _stimulusMode = s.heartSyncStimulusMode == 'images'
         ? HeartSyncStimulusMode.images
         : HeartSyncStimulusMode.tones;
     _adaptive = s.heartSyncAdaptiveOffsets;
     _record = s.heartSyncRecordPhysiology;
+    _showWaveform = s.heartSyncShowLiveWaveform;
     _loaded = true;
   }
 
@@ -53,6 +59,10 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
     trialsPerBlock: _int('perBlock', s.heartSyncTrialsPerBlock),
     blocks: _int('blocks', s.heartSyncBlocks),
     pulseMode: _pulseMode,
+    inputMode: _inputMode,
+    replayFilePath: _text('replayFile', s.heartSyncReplayFilePath),
+    showLiveWaveform: _showWaveform,
+    waveformSeconds: _double('waveformSeconds', s.heartSyncWaveformSeconds),
     channelName: _text('channel', s.heartSyncChannelName),
     stimulusMode: _stimulusMode,
     frequentToneHz: _double('freqHz', s.heartSyncFrequentToneHz),
@@ -66,6 +76,16 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
     minSkippedBeats: _int('skipMin', s.heartSyncMinSkippedBeats),
     maxSkippedBeats: _int('skipMax', s.heartSyncMaxSkippedBeats),
     ipiHistoryLength: _int('ipiN', s.heartSyncIpiHistoryLength),
+    ppgThresholdSigma: _double('ppgThreshold', s.heartSyncPpgThresholdSigma),
+    ecgThresholdSigma: _double('ecgThreshold', s.heartSyncEcgThresholdSigma),
+    detectionHighPassHz: _double(
+      'detectionHighPass',
+      s.heartSyncDetectionHighPassHz,
+    ),
+    detectionLowPassHz: _double(
+      'detectionLowPass',
+      s.heartSyncDetectionLowPassHz,
+    ),
     systolicOffsetPercent: _double(
       'sysOffset',
       s.heartSyncSystolicOffsetPercent,
@@ -103,6 +123,10 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
       s.heartSyncTrialsPerBlock = config.trialsPerBlock;
       s.heartSyncBlocks = config.blocks;
       s.heartSyncPulseMode = config.pulseMode.name;
+      s.heartSyncInputMode = config.inputMode.name;
+      s.heartSyncReplayFilePath = config.replayFilePath;
+      s.heartSyncShowLiveWaveform = config.showLiveWaveform;
+      s.heartSyncWaveformSeconds = config.waveformSeconds;
       s.heartSyncChannelName = config.channelName;
       s.heartSyncStimulusMode = config.stimulusMode.name;
       s.heartSyncFrequentToneHz = config.frequentToneHz;
@@ -115,6 +139,10 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
       s.heartSyncMinSkippedBeats = config.minSkippedBeats;
       s.heartSyncMaxSkippedBeats = config.maxSkippedBeats;
       s.heartSyncIpiHistoryLength = config.ipiHistoryLength;
+      s.heartSyncPpgThresholdSigma = config.ppgThresholdSigma;
+      s.heartSyncEcgThresholdSigma = config.ecgThresholdSigma;
+      s.heartSyncDetectionHighPassHz = config.detectionHighPassHz;
+      s.heartSyncDetectionLowPassHz = config.detectionLowPassHz;
       s.heartSyncSystolicOffsetPercent = config.systolicOffsetPercent;
       s.heartSyncDiastolicOffsetPercent = config.diastolicOffsetPercent;
       s.heartSyncDetectionLagMs = config.detectionLagMs;
@@ -147,6 +175,18 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
     );
     final path = result?.files.single.path;
     if (path != null && mounted) setState(() => _fields[key]!.text = path);
+  }
+
+  Future<void> _pickReplay() async {
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Choose timestamped cardiac CSV for replay',
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+    );
+    final path = result?.files.single.path;
+    if (path != null && mounted) {
+      setState(() => _field('replayFile', '').text = path);
+    }
   }
 
   @override
@@ -201,6 +241,44 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
               ),
             ]),
             _section('Pulse detection and timing', [
+              SegmentedButton<HeartSyncInputMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: HeartSyncInputMode.live,
+                    label: Text('Live stream'),
+                  ),
+                  ButtonSegment(
+                    value: HeartSyncInputMode.replayFile,
+                    label: Text('Replay CSV'),
+                  ),
+                ],
+                selected: {_inputMode},
+                onSelectionChanged: (value) =>
+                    setState(() => _inputMode = value.first),
+              ),
+              if (_inputMode == HeartSyncInputMode.replayFile)
+                Row(
+                  children: [
+                    Expanded(
+                      child: _textInput(
+                        'Cardiac replay CSV',
+                        'replayFile',
+                        s.heartSyncReplayFilePath,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      onPressed: _pickReplay,
+                      icon: const Icon(Icons.folder_open),
+                    ),
+                  ],
+                ),
+              if (_inputMode == HeartSyncInputMode.replayFile)
+                const Text(
+                  'Accepted columns: timestamp/time plus PPG, ECG, or value. '
+                  'Replay runs at the recorded timing through the same detector.',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
               SegmentedButton<HeartSyncPulseMode>(
                 segments: const [
                   ButtonSegment(
@@ -226,6 +304,26 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
                 s.heartSyncChannelName,
               ),
               _number('IPI history beats', 'ipiN', s.heartSyncIpiHistoryLength),
+              _number(
+                'PPG peak threshold (robust SD)',
+                'ppgThreshold',
+                s.heartSyncPpgThresholdSigma,
+              ),
+              _number(
+                'ECG peak threshold (robust SD)',
+                'ecgThreshold',
+                s.heartSyncEcgThresholdSigma,
+              ),
+              _number(
+                'Detection high-pass (Hz)',
+                'detectionHighPass',
+                s.heartSyncDetectionHighPassHz,
+              ),
+              _number(
+                'Detection low-pass (Hz)',
+                'detectionLowPass',
+                s.heartSyncDetectionLowPassHz,
+              ),
               _number(
                 'Stimulus delivery (% detected beats)',
                 'deliveryPct',
@@ -260,6 +358,21 @@ class _HeartSyncScreenState extends State<HeartSyncScreen> {
                 'posthoc',
                 s.heartSyncPostHocSystolicEndPercent,
               ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show live cardiac verification plot'),
+                subtitle: const Text(
+                  'Displays cleaned PPG/ECG, detected beats, and task markers.',
+                ),
+                value: _showWaveform,
+                onChanged: (value) => setState(() => _showWaveform = value),
+              ),
+              if (_showWaveform)
+                _number(
+                  'Live plot window (seconds)',
+                  'waveformSeconds',
+                  s.heartSyncWaveformSeconds,
+                ),
             ]),
             _section('Stimuli', [
               SegmentedButton<HeartSyncStimulusMode>(

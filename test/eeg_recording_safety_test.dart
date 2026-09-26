@@ -101,8 +101,8 @@ void main() {
       'EEG electrode',
       'Optical PPG sensor',
     ]);
-    expect(metadata.physicalMinimums, const [-15000.0, -15000.0, -32768.0]);
-    expect(metadata.physicalMaximums, const [15000.0, 15000.0, 32767.0]);
+    expect(metadata.physicalMinimums, const [-190000.0, -190000.0, -32768.0]);
+    expect(metadata.physicalMaximums, const [190000.0, 190000.0, 32767.0]);
   });
 
   test('mixed PSG EDF metadata preserves channel sensor roles', () {
@@ -122,8 +122,8 @@ void main() {
 
   test('two-channel ORBIT EEG keeps the wide anti-clipping EDF range', () {
     final metadata = EdfRecorder.signalMetadata(const ['AF7', 'AF8']);
-    expect(metadata.physicalMinimums, everyElement(-15000.0));
-    expect(metadata.physicalMaximums, everyElement(15000.0));
+    expect(metadata.physicalMinimums, everyElement(-190000.0));
+    expect(metadata.physicalMaximums, everyElement(190000.0));
   });
 
   test('ORBIT EDF DC blocker removes baseline without losing changes', () {

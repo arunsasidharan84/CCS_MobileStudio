@@ -2,6 +2,8 @@ import 'dart:math';
 
 enum HeartSyncPulseMode { ppg, ecg }
 
+enum HeartSyncInputMode { live, replayFile }
+
 enum HeartSyncStimulusMode { tones, images }
 
 enum HeartSyncStimulusKind { frequent, rare }
@@ -17,6 +19,10 @@ class HeartSyncConfig {
     this.trialsPerBlock = 25,
     this.blocks = 4,
     this.pulseMode = HeartSyncPulseMode.ppg,
+    this.inputMode = HeartSyncInputMode.live,
+    this.replayFilePath = '',
+    this.showLiveWaveform = true,
+    this.waveformSeconds = 10,
     this.channelName = 'PPG',
     this.stimulusMode = HeartSyncStimulusMode.tones,
     this.frequentToneHz = 800,
@@ -29,6 +35,10 @@ class HeartSyncConfig {
     this.minSkippedBeats = 2,
     this.maxSkippedBeats = 5,
     this.ipiHistoryLength = 5,
+    this.ppgThresholdSigma = 0.6,
+    this.ecgThresholdSigma = 2.5,
+    this.detectionHighPassHz = 0.5,
+    this.detectionLowPassHz = 8,
     this.systolicOffsetPercent = 0,
     this.diastolicOffsetPercent = 45,
     this.detectionLagMs = 0,
@@ -47,6 +57,10 @@ class HeartSyncConfig {
   final int trialsPerBlock;
   final int blocks;
   final HeartSyncPulseMode pulseMode;
+  final HeartSyncInputMode inputMode;
+  final String replayFilePath;
+  final bool showLiveWaveform;
+  final double waveformSeconds;
   final String channelName;
   final HeartSyncStimulusMode stimulusMode;
   final double frequentToneHz;
@@ -61,6 +75,10 @@ class HeartSyncConfig {
   final int minSkippedBeats;
   final int maxSkippedBeats;
   final int ipiHistoryLength;
+  final double ppgThresholdSigma;
+  final double ecgThresholdSigma;
+  final double detectionHighPassHz;
+  final double detectionLowPassHz;
   final double systolicOffsetPercent;
   final double diastolicOffsetPercent;
   final int detectionLagMs;
@@ -83,6 +101,10 @@ class HeartSyncConfig {
       trialsPerBlock: safePerBlock,
       blocks: safeBlocks,
       pulseMode: pulseMode,
+      inputMode: inputMode,
+      replayFilePath: replayFilePath.trim(),
+      showLiveWaveform: showLiveWaveform,
+      waveformSeconds: waveformSeconds.clamp(3, 30),
       channelName: channelName.trim().isEmpty
           ? pulseMode.name.toUpperCase()
           : channelName.trim(),
@@ -97,6 +119,13 @@ class HeartSyncConfig {
       minSkippedBeats: max(0, minSkippedBeats),
       maxSkippedBeats: max(minSkippedBeats, maxSkippedBeats),
       ipiHistoryLength: ipiHistoryLength.clamp(2, 30),
+      ppgThresholdSigma: ppgThresholdSigma.clamp(0.1, 5),
+      ecgThresholdSigma: ecgThresholdSigma.clamp(0.5, 10),
+      detectionHighPassHz: detectionHighPassHz.clamp(0.05, 3),
+      detectionLowPassHz: detectionLowPassHz.clamp(
+        max(3.0, detectionHighPassHz + 0.5),
+        40,
+      ),
       systolicOffsetPercent: systolicOffsetPercent.clamp(0, 99),
       diastolicOffsetPercent: diastolicOffsetPercent.clamp(0, 99),
       detectionLagMs: detectionLagMs.clamp(0, 1000),
@@ -141,6 +170,9 @@ class HeartSyncTrialResult {
     required this.presentedAt,
     required this.estimatedIpiMs,
     required this.realtimeOffsetPercent,
+    this.triggerPeakAt,
+    this.peakDetectedAt,
+    this.targetAt,
   });
 
   final HeartSyncTrialPlan plan;
@@ -153,6 +185,15 @@ class HeartSyncTrialResult {
   final DateTime presentedAt;
   final double estimatedIpiMs;
   final double realtimeOffsetPercent;
+
+  /// Causal cardiac fiducial used to schedule this trial.
+  final DateTime? triggerPeakAt;
+
+  /// Wall-clock time at which the causal detector confirmed [triggerPeakAt].
+  final DateTime? peakDetectedAt;
+
+  /// Absolute stimulus target before the platform playback call.
+  final DateTime? targetAt;
   DateTime? responseAt;
   HeartSyncResponse? response;
   CardiacPhase postHocPhase = CardiacPhase.indeterminate;
@@ -164,6 +205,15 @@ class HeartSyncTrialResult {
 
   double get audioCommandLatencyMs =>
       presentedAt.difference(playbackRequestedAt).inMicroseconds / 1000;
+
+  double? get detectionLatencyMs =>
+      triggerPeakAt == null || peakDetectedAt == null
+      ? null
+      : peakDetectedAt!.difference(triggerPeakAt!).inMicroseconds / 1000;
+
+  double? get timerDispatchErrorMs => targetAt == null
+      ? null
+      : playbackRequestedAt.difference(targetAt!).inMicroseconds / 1000;
 
   bool get isCorrect =>
       (plan.stimulus == HeartSyncStimulusKind.frequent &&

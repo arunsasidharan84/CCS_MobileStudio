@@ -15,6 +15,15 @@ class StreamMarker {
   final DateTime receivedAt;
   final double? lslTimestamp;
 
+  StreamMarker copyWith({String? value}) => StreamMarker(
+    streamId: streamId,
+    source: source,
+    value: value ?? this.value,
+    code: code,
+    receivedAt: receivedAt,
+    lslTimestamp: lslTimestamp,
+  );
+
   static int codeForValue(String value) {
     final numeric = int.tryParse(value.trim());
     if (numeric != null) return numeric.clamp(-32768, 32767);

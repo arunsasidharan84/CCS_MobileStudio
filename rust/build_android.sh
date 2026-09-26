@@ -6,7 +6,12 @@ RUST_DIR="$ROOT_DIR/rust"
 JNI_DIR="$ROOT_DIR/android/app/src/main/jniLibs"
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/opt/homebrew/share/android-commandlinetools}"
 NDK_HOME="${NDK_HOME:-$ANDROID_SDK_ROOT/ndk/28.2.13676358}"
-TOOLCHAIN_BIN="$NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+case "$(uname -s)" in
+  Darwin) HOST_TAG="darwin-x86_64" ;;
+  Linux) HOST_TAG="linux-x86_64" ;;
+  *) echo "Unsupported Android build host: $(uname -s)" >&2; exit 1 ;;
+esac
+TOOLCHAIN_BIN="$NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG/bin"
 API="${ANDROID_API:-24}"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 

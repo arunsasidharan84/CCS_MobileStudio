@@ -11,6 +11,7 @@ import '../../core/services/settings_service.dart';
 import '../../core/services/permission_service.dart';
 import '../../core/services/file_naming_service.dart';
 import '../../core/services/multi_device_acquisition_service.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/models/module_type.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import '../settings/settings_screen.dart';
@@ -20,6 +21,7 @@ import '../angel/angel_screen.dart';
 import '../adaptive_wm/wm_screen.dart';
 import '../sleepiness/sleepiness_screen.dart';
 import '../heartsync/heartsync_screen.dart';
+import '../generic_erp/generic_erp_screen.dart';
 
 /// Main unified dashboard for CCS Mobile Studio.
 ///
@@ -135,6 +137,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _checkForUpdates() async {
+    if (context.read<SessionManager>().isRecording) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Stop the active recording before updating the app.'),
+        ),
+      );
+      return;
+    }
+    await showAppUpdateFlow(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final eegService = context.watch<AcquisitionService>();
@@ -209,6 +223,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.system_update_alt, color: Colors.white70),
+            tooltip: 'Check for App Updates',
+            onPressed: _checkForUpdates,
+          ),
           IconButton(
             icon: const Icon(Icons.volume_up, color: Colors.white70),
             tooltip: 'Test Audio Beep',
@@ -482,6 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.standalone => const Color(0xFF14B8A6),
       ModuleType.nidra => const Color(0xFF818CF8),
       ModuleType.angel => const Color(0xFFF59E0B),
+      ModuleType.erp => const Color(0xFF22D3EE),
       ModuleType.wm => const Color(0xFFEC4899),
       ModuleType.heartsync => const Color(0xFFF43F5E),
       ModuleType.sleepiness => const Color(0xFF10B981),
@@ -490,6 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.standalone => Icons.monitor_heart,
       ModuleType.nidra => Icons.bedtime,
       ModuleType.angel => Icons.psychology,
+      ModuleType.erp => Icons.multiline_chart,
       ModuleType.wm => Icons.memory,
       ModuleType.heartsync => Icons.favorite,
       ModuleType.sleepiness => Icons.assignment_turned_in,
@@ -498,6 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.standalone => 'EEG waveform viewer and EDF recorder',
       ModuleType.nidra => 'Sleep staging and auditory stimulation',
       ModuleType.angel => 'Cognitive ERP battery',
+      ModuleType.erp => 'Flexible oddball, N400, P50, MMN and N170 tasks',
       ModuleType.wm => 'Adaptive working memory task',
       ModuleType.heartsync => 'Heartbeat-locked cardiac oddball task',
       ModuleType.sleepiness => 'Stanford Sleepiness Scale assessment & logs',
@@ -576,6 +598,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.standalone => const StandaloneScreen(),
       ModuleType.nidra => const NidraScreen(),
       ModuleType.angel => const AngelScreen(),
+      ModuleType.erp => const GenericErpScreen(),
       ModuleType.wm => const WmScreen(),
       ModuleType.heartsync => const HeartSyncScreen(),
       ModuleType.sleepiness => const SleepinessScreen(),

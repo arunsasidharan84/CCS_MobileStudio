@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/eeg/acquisition_service.dart';
@@ -133,6 +136,18 @@ class _AngelScreenState extends State<AngelScreen> {
           audioInstructionsEnabled: _audioInstructions,
           channelLabels: channelConfig.labels,
           enabledChannels: channelConfig.enabled,
+          visualStimulusFolder: context
+              .read<SettingsService>()
+              .angelVisualStimulusFolder,
+          auditoryStimulusFolder: context
+              .read<SettingsService>()
+              .angelAuditoryStimulusFolder,
+          stimulusFiles: context.read<SettingsService>().angelStimulusFiles.map(
+            (key, value) => MapEntry(key, List<String>.from(value)),
+          ),
+          erpComponent: context
+              .read<SettingsService>()
+              .angelRealtimeErpComponent,
         ),
       ),
     );
@@ -390,15 +405,15 @@ class _AngelScreenState extends State<AngelScreen> {
                       items: const [
                         DropdownMenuItem(
                           value: 'all',
-                          child: Text('Kanizsa & Mooney'),
+                          child: Text('Salient Stimuli Types 1 & 2'),
                         ),
                         DropdownMenuItem(
                           value: 'face',
-                          child: Text('Mooney Only'),
+                          child: Text('Salient Stimuli Type 1'),
                         ),
                         DropdownMenuItem(
                           value: 'shape',
-                          child: Text('Kanizsa Only'),
+                          child: Text('Salient Stimuli Type 2'),
                         ),
                       ],
                       onChanged: (val) {
@@ -407,6 +422,48 @@ class _AngelScreenState extends State<AngelScreen> {
                           (s) => s.angelCategorySet = val!,
                         );
                       },
+                    ),
+                    const SizedBox(height: 16),
+                    _buildStimulusFolderPicker(
+                      label: 'Visual stimulus folder',
+                      path: settings.angelVisualStimulusFolder,
+                      icon: Icons.image_outlined,
+                      onPressed: () => _pickStimulusFolder(visual: true),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildStimulusFolderPicker(
+                      label: 'Auditory stimulus folder',
+                      path: settings.angelAuditoryStimulusFolder,
+                      icon: Icons.audio_file_outlined,
+                      onPressed: () => _pickStimulusFolder(visual: false),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildStimulusMappingSummary(settings),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: settings.angelRealtimeErpComponent,
+                      decoration: const InputDecoration(
+                        labelText: 'Realtime ERP waveform',
+                      ),
+                      items: const ['P300', 'N170']
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          settings.update(
+                            (s) => s.angelRealtimeErpComponent = value,
+                          );
+                        }
+                      },
+                    ),
+                    const Text(
+                      'Mapped files take priority. Folder selection remains available for bulk import; unmapped stimulus types use the bundled defaults.',
+                      style: TextStyle(color: Colors.white54, fontSize: 11),
                     ),
                     const SizedBox(height: 16),
                     SwitchListTile(
@@ -599,6 +656,207 @@ class _AngelScreenState extends State<AngelScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildStimulusFolderPicker({
+    required String label,
+    required String path,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            path.isEmpty ? '$label: bundled default' : '$label: $path',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          label: const Text('Choose folder'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStimulusMappingSummary(SettingsService settings) {
+    final assigned = settings.angelStimulusFiles.values.fold<int>(
+      0,
+      (total, files) => total + files.length,
+    );
+    final mappedTypes = settings.angelStimulusFiles.values
+        .where((files) => files.isNotEmpty)
+        .length;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.account_tree_outlined, color: Color(0xFF14B8A6)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Stimulus type mapping',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  assigned == 0
+                      ? 'Using bundled defaults'
+                      : '$assigned files assigned across $mappedTypes types',
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => _showStimulusMappingDialog(settings),
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Map files'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showStimulusMappingDialog(SettingsService settings) async {
+    const labels = <String, String>{
+      'visual_salient_1': 'Visual: Salient type 1',
+      'visual_control_1': 'Visual: Control type 1',
+      'visual_salient_2': 'Visual: Salient type 2',
+      'visual_control_2': 'Visual: Control type 2',
+      'auditory_standard': 'Auditory: Standard',
+      'auditory_deviant': 'Auditory: Deviant',
+      'auditory_corollary': 'Auditory: Corollary',
+      'auditory_no_corollary': 'Auditory: No corollary',
+    };
+    final mapped = settings.angelStimulusFiles.map(
+      (key, files) => MapEntry(key, List<String>.from(files)),
+    );
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text(
+            'Map files to stimulus types',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 700,
+            height: 520,
+            child: ListView(
+              children: labels.entries.map((entry) {
+                final files = mapped[entry.key] ?? const <String>[];
+                final isVisual = entry.key.startsWith('visual_');
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    isVisual ? Icons.image_outlined : Icons.audio_file_outlined,
+                    color: const Color(0xFF14B8A6),
+                  ),
+                  title: Text(
+                    entry.value,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  subtitle: Text(
+                    files.isEmpty
+                        ? 'Bundled default'
+                        : files
+                              .map(
+                                (path) =>
+                                    path.split(Platform.pathSeparator).last,
+                              )
+                              .join(', '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60),
+                  ),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      if (files.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Use bundled default',
+                          onPressed: () =>
+                              setDialogState(() => mapped.remove(entry.key)),
+                          icon: const Icon(Icons.clear, color: Colors.white70),
+                        ),
+                      OutlinedButton(
+                        onPressed: () async {
+                          final result = await FilePicker.platform.pickFiles(
+                            allowMultiple: true,
+                            dialogTitle: 'Choose ${entry.value} files',
+                            type: FileType.custom,
+                            allowedExtensions: isVisual
+                                ? const ['png', 'jpg', 'jpeg', 'bmp']
+                                : const ['wav', 'mp3', 'm4a', 'aac'],
+                          );
+                          final paths = result?.paths
+                              .whereType<String>()
+                              .toList();
+                          if (paths == null ||
+                              paths.isEmpty ||
+                              !dialogContext.mounted) {
+                            return;
+                          }
+                          setDialogState(() => mapped[entry.key] = paths);
+                        },
+                        child: Text(files.isEmpty ? 'Choose files' : 'Replace'),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save mapping'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved != true || !mounted) return;
+    settings.update((value) {
+      value.angelStimulusFiles = mapped
+        ..removeWhere((key, files) => files.isEmpty);
+    });
+  }
+
+  Future<void> _pickStimulusFolder({required bool visual}) async {
+    final path = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: visual
+          ? 'Choose ANGEL visual stimulus folder'
+          : 'Choose ANGEL auditory stimulus folder',
+    );
+    if (path == null || !mounted) return;
+    context.read<SettingsService>().update((settings) {
+      if (visual) {
+        settings.angelVisualStimulusFolder = path;
+      } else {
+        settings.angelAuditoryStimulusFolder = path;
+      }
+    });
   }
 
   Widget _buildSectionCard({

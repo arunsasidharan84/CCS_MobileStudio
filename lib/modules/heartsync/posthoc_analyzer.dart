@@ -11,7 +11,7 @@ class HeartSyncPostHocAnalyzer {
     int detectedBeats = 0,
     int collisionSkippedBeats = 0,
   }) {
-    final peaks = _findPeaks(samples, config);
+    final peaks = findPeaks(samples, config);
     for (final trial in trials) {
       final previousIndex = _lastPeakBefore(peaks, trial.presentedAt);
       if (previousIndex < 0 || previousIndex + 1 >= peaks.length) continue;
@@ -160,10 +160,12 @@ class HeartSyncPostHocAnalyzer {
     );
   }
 
-  static List<DateTime> _findPeaks(
+  /// Offline fiducials used for final verification plots and phase assignment.
+  static List<DateTime> findPeaks(
     List<CardiacSample> samples,
-    HeartSyncConfig config,
-  ) {
+    HeartSyncConfig config, {
+    HeartSyncPulseMode? pulseMode,
+  }) {
     if (samples.length < 5) return const [];
     final durationUs = samples.last.timestamp
         .difference(samples.first.timestamp)
@@ -172,8 +174,14 @@ class HeartSyncPostHocAnalyzer {
         ? 250.0
         : (samples.length - 1) * 1000000 / durationUs;
     final raw = samples.map((sample) => sample.value).toList(growable: false);
-    final bandpassed = _zeroPhaseBandpass(raw, sampleRate);
-    final values = config.pulseMode == HeartSyncPulseMode.ecg
+    final bandpassed = _zeroPhaseBandpass(
+      raw,
+      sampleRate,
+      config.detectionHighPassHz,
+      config.detectionLowPassHz,
+    );
+    final mode = pulseMode ?? config.pulseMode;
+    final values = mode == HeartSyncPulseMode.ecg
         ? bandpassed.map((value) => value.abs()).toList(growable: false)
         : bandpassed;
     final sorted = List<double>.of(values)..sort();
@@ -183,7 +191,10 @@ class HeartSyncPostHocAnalyzer {
     final robustSd = max((p75 - p25) / 1.349, 1e-9);
     final threshold =
         median +
-        robustSd * (config.pulseMode == HeartSyncPulseMode.ecg ? 2.5 : 0.5);
+        robustSd *
+            (mode == HeartSyncPulseMode.ecg
+                ? config.ecgThresholdSigma
+                : config.ppgThresholdSigma);
     final refractorySamples = max(
       1,
       (max(600, config.refractoryMs) * sampleRate / 1000).round(),
@@ -219,19 +230,28 @@ class HeartSyncPostHocAnalyzer {
   static List<double> _zeroPhaseBandpass(
     List<double> input,
     double sampleRate,
+    double highPassHz,
+    double lowPassHz,
   ) {
     if (input.isEmpty || sampleRate <= 0) return List<double>.of(input);
-    final forward = _onePoleBandpass(input, sampleRate);
+    final forward = _onePoleBandpass(input, sampleRate, highPassHz, lowPassHz);
     return _onePoleBandpass(
       forward.reversed.toList(),
       sampleRate,
+      highPassHz,
+      lowPassHz,
     ).reversed.toList(growable: false);
   }
 
-  static List<double> _onePoleBandpass(List<double> input, double sampleRate) {
+  static List<double> _onePoleBandpass(
+    List<double> input,
+    double sampleRate,
+    double highPassHz,
+    double lowPassHz,
+  ) {
     final dt = 1 / sampleRate;
-    final highPassRc = 1 / (2 * pi * 0.5);
-    final lowPassRc = 1 / (2 * pi * 8.0);
+    final highPassRc = 1 / (2 * pi * highPassHz);
+    final lowPassRc = 1 / (2 * pi * lowPassHz);
     final highAlpha = highPassRc / (highPassRc + dt);
     final lowAlpha = dt / (lowPassRc + dt);
     var previousInput = input.first;

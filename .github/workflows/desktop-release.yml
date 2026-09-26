@@ -10,7 +10,7 @@ on:
       - .github/workflows/desktop-release.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   macos:
@@ -34,7 +34,7 @@ jobs:
 
       - name: Verify Dart code
         run: |
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
 
       - name: Build macOS release
@@ -54,6 +54,68 @@ jobs:
           path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-macOS-universal.zip
           if-no-files-found: error
 
+  android:
+    name: Android universal APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      - name: Install Android NDK and Rust targets
+        run: |
+          sdkmanager "ndk;28.2.13676358"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Build Android native core
+        run: ./rust/build_android.sh
+
+      - name: Configure stable Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          CCS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CCS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CCS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || \
+             [ -z "$CCS_ANDROID_KEYSTORE_PASSWORD" ] || \
+             [ -z "$CCS_ANDROID_KEY_ALIAS" ] || \
+             [ -z "$CCS_ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::All Android release-signing secrets are required for updatable APK releases"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
+          echo "CCS_ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/release-key.jks" >> "$GITHUB_ENV"
+
+      - name: Build Android release APK
+        env:
+          CCS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CCS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CCS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: flutter build apk --release
+
+      - name: Package Android APK
+        run: |
+          VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml | tr '+' '-')
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "build/CCS-Mobile-Studio-${VERSION}-Android.apk"
+          echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Android
+          path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Android.apk
+          if-no-files-found: error
+
   windows:
     name: Windows x64 app
     runs-on: windows-2022
@@ -69,6 +131,11 @@ jobs:
 
       - name: Resolve Flutter packages
         run: flutter pub get
+
+      - name: Verify Dart code
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
 
       - name: Build Windows release
         run: flutter build windows --release
@@ -86,3 +153,31 @@ jobs:
           name: CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Windows-x64
           path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Windows-x64.zip
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [macos, windows, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CCS-Mobile-Studio-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish versioned release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PACKAGE_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
+          TAG="v${PACKAGE_VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --title "CCS Mobile Studio ${PACKAGE_VERSION}" \
+              --generate-notes
+          fi

@@ -16,6 +16,7 @@ import '../services/alert_service.dart';
 import '../services/settings_service.dart';
 import 'ads1299_scaling.dart';
 import 'orbit_packet_decoder.dart';
+import 'orbit_sample_clock.dart';
 
 enum DeviceKind { orbit, epidome, generic, synthetic }
 
@@ -93,8 +94,8 @@ class AcquisitionService extends ChangeNotifier {
   final List<int> _bleBuffer = [];
   String _orbitTextBuffer = '';
   int _orbitAsciiSampleIndex = 0;
-  DateTime? _lastOrbitEegTimestamp;
-  DateTime? _lastOrbitPpgTimestamp;
+  final OrbitSampleClock _orbitEegClock = OrbitSampleClock();
+  final OrbitSampleClock _orbitPpgClock = OrbitSampleClock();
   final _random = Random();
   final OrbitPacketDecoder _orbitDecoder = OrbitPacketDecoder();
 
@@ -589,8 +590,8 @@ class AcquisitionService extends ChangeNotifier {
     _bleBuffer.clear();
     _orbitTextBuffer = '';
     _orbitAsciiSampleIndex = 0;
-    _lastOrbitEegTimestamp = null;
-    _lastOrbitPpgTimestamp = null;
+    _orbitEegClock.reset();
+    _orbitPpgClock.reset();
     _orbitDecoder.reset();
     _resetXampSaturation();
     if (_currentState != AcquisitionState.disconnected) {
@@ -650,8 +651,8 @@ class AcquisitionService extends ChangeNotifier {
     _classicBuffer.clear();
     _bleBuffer.clear();
     _orbitTextBuffer = '';
-    _lastOrbitEegTimestamp = null;
-    _lastOrbitPpgTimestamp = null;
+    _orbitEegClock.reset();
+    _orbitPpgClock.reset();
     _orbitDecoder.reset();
     _resetXampSaturation();
     try {
@@ -1057,11 +1058,10 @@ class AcquisitionService extends ChangeNotifier {
     final eegSamples = decodedPackets
         .expand((packet) => packet.displaySamples)
         .toList(growable: false);
-    var eegTimestamp = _firstTimestampForPacket(
+    var eegTimestamp = _orbitEegClock.firstTimestampForBatch(
       packetArrival: arrival,
       sampleCount: eegSamples.length,
       sampleRate: 250,
-      previous: _lastOrbitEegTimestamp,
     );
     const eegPeriod = Duration(microseconds: 4000);
     for (final channels in eegSamples) {
@@ -1074,7 +1074,6 @@ class AcquisitionService extends ChangeNotifier {
           source: 'Orbit',
         ),
       );
-      _lastOrbitEegTimestamp = eegTimestamp;
       eegTimestamp = eegTimestamp.add(eegPeriod);
     }
 
@@ -1088,11 +1087,10 @@ class AcquisitionService extends ChangeNotifier {
     final ppgPeriod = Duration(
       microseconds: (1000000 / ppgStream.sampleRate).round(),
     );
-    var ppgTimestamp = _firstTimestampForPacket(
+    var ppgTimestamp = _orbitPpgClock.firstTimestampForBatch(
       packetArrival: arrival,
       sampleCount: ppgSamples.length,
       sampleRate: ppgStream.sampleRate,
-      previous: _lastOrbitPpgTimestamp,
     );
     for (final value in ppgSamples) {
       _streamSamples.add(
@@ -1110,26 +1108,8 @@ class AcquisitionService extends ChangeNotifier {
           physicalMaximum: ppgStream.physicalMaximum,
         ),
       );
-      _lastOrbitPpgTimestamp = ppgTimestamp;
       ppgTimestamp = ppgTimestamp.add(ppgPeriod);
     }
-  }
-
-  DateTime _firstTimestampForPacket({
-    required DateTime packetArrival,
-    required int sampleCount,
-    required double sampleRate,
-    required DateTime? previous,
-  }) {
-    if (sampleRate <= 0) return packetArrival;
-    final periodUs = (1000000 / sampleRate).round();
-    var first = packetArrival.subtract(
-      Duration(microseconds: periodUs * max(0, sampleCount - 1)),
-    );
-    if (previous != null && !first.isAfter(previous)) {
-      first = previous.add(const Duration(microseconds: 1));
-    }
-    return first;
   }
 
   void _parseDelimitedText(Uint8List data, {bool bleSource = false}) {

@@ -82,6 +82,7 @@ class _NidraScreenState extends State<NidraScreen>
       sessionManager: sessionManager,
       alertService: alertService,
     );
+    _module.stimulusMarkerCode = settings.nidraStimMarkerCode;
     _module.stimService.configure(
       enabled: settings.nidraStimEnabled,
       targetStage: SleepStage.values.firstWhere(
@@ -1680,19 +1681,30 @@ class _NidraScreenState extends State<NidraScreen>
                           3600,
                           stim.setRefractory,
                         ),
+                        numberSetting(
+                          'EDF stimulus marker',
+                          _module.stimulusMarkerCode,
+                          1,
+                          32767,
+                          (value) {
+                            _module.stimulusMarkerCode = value;
+                            _persistStimSettings(stim);
+                          },
+                          suffix: 'code',
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
                     FilledButton.icon(
                       onPressed: () async {
-                        await stim.testStimulus();
+                        await stim.sendStimulus();
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text(stim.statusText)),
                         );
                       },
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('Test stimulus'),
+                      label: const Text('Send Stimulus'),
                     ),
                   ],
                 ),
@@ -1735,6 +1747,7 @@ class _NidraScreenState extends State<NidraScreen>
       settings.nidraStimNotifyFlash = stim.notifyFlash;
       settings.nidraStimNotificationIntervalSecs =
           stim.notificationIntervalSecs;
+      settings.nidraStimMarkerCode = _module.stimulusMarkerCode;
     });
   }
 
