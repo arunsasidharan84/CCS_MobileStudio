@@ -61,25 +61,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: 3.41.9
-          channel: stable
-          cache: true
-
-      - name: Install Android NDK and Rust targets
-        run: |
-          sdkmanager "ndk;28.2.13676358"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-
-      - name: Resolve Flutter packages
-        run: flutter pub get
-
-      - name: Build Android native core
-        run: ./rust/build_android.sh
-
       - name: Configure stable Android release signing
+        id: android-signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           CCS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -90,13 +73,42 @@ jobs:
              [ -z "$CCS_ANDROID_KEYSTORE_PASSWORD" ] || \
              [ -z "$CCS_ANDROID_KEY_ALIAS" ] || \
              [ -z "$CCS_ANDROID_KEY_PASSWORD" ]; then
-            echo "::error::All Android release-signing secrets are required for updatable APK releases"
-            exit 1
+            echo "::warning::Android APK skipped: stable release-signing secrets are not configured"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
+            echo "CCS_ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/release-key.jks" >> "$GITHUB_ENV"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
-          echo "CCS_ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/release-key.jks" >> "$GITHUB_ENV"
+
+      - uses: subosito/flutter-action@v2
+        if: steps.android-signing.outputs.enabled == 'true'
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      - name: Install Android NDK and Rust targets
+        if: steps.android-signing.outputs.enabled == 'true'
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          "$SDKMANAGER" "ndk;28.2.13676358"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Resolve Flutter packages
+        if: steps.android-signing.outputs.enabled == 'true'
+        run: flutter pub get
+
+      - name: Build Android native core
+        if: steps.android-signing.outputs.enabled == 'true'
+        run: ./rust/build_android.sh
 
       - name: Build Android release APK
+        if: steps.android-signing.outputs.enabled == 'true'
         env:
           CCS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           CCS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -104,6 +116,7 @@ jobs:
         run: flutter build apk --release
 
       - name: Package Android APK
+        if: steps.android-signing.outputs.enabled == 'true'
         run: |
           VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml | tr '+' '-')
           cp build/app/outputs/flutter-apk/app-release.apk \
@@ -111,6 +124,7 @@ jobs:
           echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
+        if: steps.android-signing.outputs.enabled == 'true'
         with:
           name: CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Android
           path: build/CCS-Mobile-Studio-${{ env.DESKTOP_VERSION }}-Android.apk
