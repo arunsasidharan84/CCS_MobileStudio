@@ -12,12 +12,30 @@ import 'orbit_packet_decoder.dart';
 class EdfRecorder extends ChangeNotifier {
   Pointer<Void> _writer = nullptr;
   String? _path;
-  int _signalChannelCount = 1;
-  int _edfChannelCount = 2;
-  int _sampleRate = 100;
-  List<String> _channelLabels = [];
+  int _signalChannelCount = 16;
+  int _edfChannelCount = 17;
+  int _sampleRate = 250;
+  List<String> _channelLabels = const [
+    'Fp1',
+    'Fp2',
+    'F3',
+    'F4',
+    'C3',
+    'Cz',
+    'C4',
+    'P3',
+    'Pz',
+    'P4',
+    'O1',
+    'Oz',
+    'O2',
+    'F7',
+    'F8',
+    'T3',
+  ];
   List<bool>? _enabledChannels;
-  int _pendingMarkerCode = 0;
+  int _activeMarkerCode = 0;
+  int _markerHoldCounter = 0;
   final List<OrbitEegDcBlocker> _eegDcBlockers = List.generate(
     16,
     (_) => OrbitEegDcBlocker(),
@@ -139,7 +157,8 @@ class EdfRecorder extends ChangeNotifier {
     _channelLabels = selection.labels;
     _enabledChannels = enabledChannels;
     _dcBlockElectrophysiology = dcBlockElectrophysiology;
-    _pendingMarkerCode = 0;
+    _activeMarkerCode = 0;
+    _markerHoldCounter = 0;
     for (final blocker in _eegDcBlockers) {
       blocker.reset();
     }
@@ -291,8 +310,12 @@ class EdfRecorder extends ChangeNotifier {
   }
 
   void setMarker(int code) {
-    _pendingMarkerCode = code;
-    debugPrint('[EdfRecorder] Marker: $code');
+    _activeMarkerCode = code;
+    // Hold marker pulse for ~20 ms (5 samples at 250 Hz, 2 samples at 100 Hz, at least 1 sample)
+    _markerHoldCounter = (_sampleRate * 0.02).ceil().clamp(1, 20);
+    debugPrint(
+      '[EdfRecorder] Marker: $code (hold for $_markerHoldCounter samples)',
+    );
   }
 
   void push(EegSample sample) {
@@ -307,16 +330,23 @@ class EdfRecorder extends ChangeNotifier {
       if (isEnabled && writeIdx < _signalChannelCount) {
         var value = sample.channels[i];
         final isPpg =
-            i < _channelLabels.length &&
-            _channelLabels[i].toUpperCase().contains('PPG');
+            writeIdx < _channelLabels.length &&
+            _channelLabels[writeIdx].toUpperCase().contains('PPG');
         if (_dcBlockElectrophysiology && !isPpg && i < _eegDcBlockers.length) {
           value = _eegDcBlockers[i].process(value);
         }
         values[writeIdx++] = value;
       }
     }
-    values[_edfChannelCount - 1] = _pendingMarkerCode.toDouble();
-    _pendingMarkerCode = 0;
+    if (_markerHoldCounter > 0) {
+      values[_edfChannelCount - 1] = _activeMarkerCode.toDouble();
+      _markerHoldCounter--;
+      if (_markerHoldCounter == 0) {
+        _activeMarkerCode = 0;
+      }
+    } else {
+      values[_edfChannelCount - 1] = 0.0;
+    }
     NativeCore.instance.pushEdfSample(_writer, values);
   }
 

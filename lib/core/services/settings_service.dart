@@ -107,6 +107,9 @@ class SettingsService extends ChangeNotifier {
   bool nidraStimNotifyFlash = true;
   int nidraStimNotificationIntervalSecs = 5;
   int nidraStimMarkerCode = 40;
+  List<Map<String, dynamic>> nidraStimPlaylist = [];
+  String nidraStimOrderMode = 'sequential';
+  int nidraStimSelectedCueIndex = 0;
   String nidraScoringSignalLabel = '';
   String nidraScoringReferenceLabel = '';
   String nidraChartMode = 'hypnogram';
@@ -395,6 +398,9 @@ class SettingsService extends ChangeNotifier {
     'nidraStimNotifyFlash': nidraStimNotifyFlash,
     'nidraStimNotificationIntervalSecs': nidraStimNotificationIntervalSecs,
     'nidraStimMarkerCode': nidraStimMarkerCode,
+    'nidraStimPlaylist': nidraStimPlaylist,
+    'nidraStimOrderMode': nidraStimOrderMode,
+    'nidraStimSelectedCueIndex': nidraStimSelectedCueIndex,
     'nidraScoringSignalLabel': nidraScoringSignalLabel,
     'nidraScoringReferenceLabel': nidraScoringReferenceLabel,
     'nidraChartMode': nidraChartMode,
@@ -793,6 +799,20 @@ class SettingsService extends ChangeNotifier {
     nidraStimMarkerCode =
         ((json['nidraStimMarkerCode'] as num?)?.round() ?? nidraStimMarkerCode)
             .clamp(1, 32767);
+    if (json['nidraStimPlaylist'] is List) {
+      nidraStimPlaylist = (json['nidraStimPlaylist'] as List)
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    final orderMode = json['nidraStimOrderMode']?.toString();
+    if (const ['sequential', 'random'].contains(orderMode)) {
+      nidraStimOrderMode = orderMode!;
+    }
+    nidraStimSelectedCueIndex =
+        ((json['nidraStimSelectedCueIndex'] as num?)?.round() ??
+                nidraStimSelectedCueIndex)
+            .clamp(0, 10000);
     nidraScoringSignalLabel =
         (json['nidraScoringSignalLabel'] as String?) ?? nidraScoringSignalLabel;
     nidraScoringReferenceLabel =

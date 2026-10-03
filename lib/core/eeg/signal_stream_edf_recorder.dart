@@ -9,7 +9,8 @@ import 'orbit_packet_decoder.dart';
 class SignalStreamEdfRecorder {
   Pointer<Void> _writer = nullptr;
   late SignalStreamProfile _profile;
-  int _pendingMarker = 0;
+  int _activeMarker = 0;
+  int _markerHoldCounter = 0;
   String? _path;
   List<int> _enabledIndices = const [];
   List<OrbitEegDcBlocker> _electrophysiologyDcBlockers = const [];
@@ -40,7 +41,8 @@ class SignalStreamEdfRecorder {
       (_) => OrbitEegDcBlocker(),
     );
     _path = path;
-    _pendingMarker = 0;
+    _activeMarker = 0;
+    _markerHoldCounter = 0;
     final labels = [
       ..._enabledIndices.map((index) => profile.channelLabels[index]),
       'Marker',
@@ -109,7 +111,10 @@ class SignalStreamEdfRecorder {
     return path;
   }
 
-  void setMarker(int code) => _pendingMarker = code;
+  void setMarker(int code) {
+    _activeMarker = code;
+    _markerHoldCounter = (_profile.sampleRate * 0.02).ceil().clamp(1, 20);
+  }
 
   void push(SignalStreamSample sample) {
     if (_writer == nullptr || sample.streamId != _profile.id) return;
@@ -134,8 +139,13 @@ class SignalStreamEdfRecorder {
         values[output] = value;
       }
     }
-    values.last = _pendingMarker.toDouble();
-    _pendingMarker = 0;
+    if (_markerHoldCounter > 0) {
+      values.last = _activeMarker.toDouble();
+      _markerHoldCounter--;
+      if (_markerHoldCounter == 0) _activeMarker = 0;
+    } else {
+      values.last = 0.0;
+    }
     NativeCore.instance.pushEdfSample(_writer, values);
   }
 

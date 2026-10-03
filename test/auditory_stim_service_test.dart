@@ -102,11 +102,54 @@ void main() {
     final service = AuditoryStimService(alertService: AlertService());
     configureManual(service);
     String? marker;
-    service.onStimulusPresented = (label) => marker = label;
+    int? code;
+    service.onStimulusPresented = (label, [c]) {
+      marker = label;
+      code = c;
+    };
 
     await service.sendStimulus();
 
     expect(marker, 'nidra_stimulus_manual');
+    expect(code, 40);
+    service.dispose();
+  });
+
+  testWidgets('playlist manages cues, sequencing, reordering and stop playback', (
+    tester,
+  ) async {
+    final service = AuditoryStimService(alertService: AlertService());
+    configureManual(service);
+
+    service.addCue(
+      StimulusCueItem(id: '1', name: 'word_apple.wav', filePath: '/fake/apple.wav', markerCode: 41),
+    );
+    service.addCue(
+      StimulusCueItem(id: '2', name: 'word_banana.wav', filePath: '/fake/banana.wav', markerCode: 42),
+    );
+
+    expect(service.playlist.length, 2);
+    expect(service.currentCueItem?.name, 'word_apple.wav');
+    expect(service.currentCueItem?.markerCode, 41);
+
+    // Manual override: select cue index 1
+    service.selectCue(1);
+    expect(service.currentCueItem?.name, 'word_banana.wav');
+    expect(service.currentCueItem?.markerCode, 42);
+
+    // Edit marker code
+    service.updateCueMarkerCode(1, 55);
+    expect(service.currentCueItem?.markerCode, 55);
+
+    // Reorder cues
+    service.reorderCue(1, 0);
+    expect(service.playlist[0].name, 'word_banana.wav');
+    expect(service.playlist[1].name, 'word_apple.wav');
+
+    // Test stop playback
+    await service.stopPlayback();
+    expect(service.isPlayingAudio, isFalse);
+
     service.dispose();
   });
 }

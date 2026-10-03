@@ -39,6 +39,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late TextEditingController _subjectCtrl;
+  bool _hasUpdate = false;
 
   @override
   void initState() {
@@ -68,16 +69,26 @@ class _HomeScreenState extends State<HomeScreen> {
       await eegService.scan(autoConnect: true);
     }
     final recovered = await FileNamingService.recoverPendingFiles();
-    if (!mounted || recovered.isEmpty) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Recovered ${recovered.length} recording file${recovered.length == 1 ? '' : 's'} '
-          'from an interrupted session.',
+    if (mounted && recovered.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Recovered ${recovered.length} recording file${recovered.length == 1 ? '' : 's'} '
+            'from an interrupted session.',
+          ),
+          duration: const Duration(seconds: 8),
         ),
-        duration: const Duration(seconds: 8),
-      ),
-    );
+      );
+    }
+
+    try {
+      final info = await AppUpdateService.check();
+      if (mounted && info.hasUpdate) {
+        setState(() => _hasUpdate = true);
+      }
+    } catch (_) {
+      // Quiet background check - non-critical
+    }
   }
 
   @override
@@ -224,8 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.system_update_alt, color: Colors.white70),
-            tooltip: 'Check for App Updates',
+            icon: Badge(
+              isLabelVisible: _hasUpdate,
+              backgroundColor: Colors.tealAccent,
+              child: const Icon(Icons.system_update_alt, color: Colors.white70),
+            ),
+            tooltip: _hasUpdate
+                ? 'App update available! Tap to download & install'
+                : 'Check for App Updates',
             onPressed: _checkForUpdates,
           ),
           IconButton(

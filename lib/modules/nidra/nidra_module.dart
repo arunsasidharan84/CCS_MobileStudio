@@ -20,8 +20,8 @@ import 'sleep_pipeline.dart';
 class NidraModule extends ChangeNotifier {
   NidraModule({required this.sessionManager, required this.alertService})
     : stimService = AuditoryStimService(alertService: alertService) {
-    stimService.onStimulusPresented = (label) {
-      sessionManager.recordEvent(label, stimulusMarkerCode);
+    stimService.onStimulusPresented = (label, [markerCode]) {
+      sessionManager.recordEvent(label, markerCode ?? stimulusMarkerCode);
     };
   }
 

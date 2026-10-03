@@ -323,6 +323,9 @@ class AcquisitionService extends ChangeNotifier {
   }
 
   List<bool> recordingEnabledChannels(List<bool>? configured) {
+    if (configured != null && configured.length == channelCount) {
+      return List<bool>.of(configured);
+    }
     final profileEnabled = _activeProfile?.enabledStreams
         .expand((stream) => stream.channelEnabled)
         .toList(growable: false);
@@ -339,9 +342,6 @@ class AcquisitionService extends ChangeNotifier {
       }
       return result;
     }
-    if (configured != null && configured.length == channelCount) {
-      return List<bool>.of(configured);
-    }
     return List<bool>.filled(channelCount, true);
   }
 
@@ -355,6 +355,45 @@ class AcquisitionService extends ChangeNotifier {
     ].request();
   }
 
+  void _handleBleDevice(
+    ble.BluetoothDevice bleDev, {
+    bool autoConnect = false,
+    String? customName,
+  }) {
+    final name = (customName != null && customName.isNotEmpty)
+        ? customName
+        : (bleDev.platformName.isNotEmpty
+            ? bleDev.platformName
+            : bleDev.advName);
+    final profile = _matchingProfile(
+      name,
+      bleDev.remoteId.toString(),
+      ConnectionTransport.bluetoothLe,
+    );
+    if (profile == null) return;
+    final device = EegDevice(
+      name: name.isEmpty ? 'Unknown BLE device' : name,
+      id: bleDev.remoteId.toString(),
+      kind: _kindForProfile(profile),
+      isBle: true,
+      profileId: profile.id,
+    );
+    _addDevice(device);
+    if (autoConnect && profile.autoConnect) {
+      debugPrint(
+        '[AcquisitionService] Found BLE target device $name (${device.id}). Auto-connecting!',
+      );
+      unawaited(connect(device));
+    }
+  }
+
+  void _handleBleScanResult(ble.ScanResult result, {bool autoConnect = false}) {
+    final name = result.device.platformName.isNotEmpty
+        ? result.device.platformName
+        : result.advertisementData.advName;
+    _handleBleDevice(result.device, autoConnect: autoConnect, customName: name);
+  }
+
   Future<void> scan({bool autoConnect = true}) async {
     if (_currentState == AcquisitionState.connecting ||
         _currentState == AcquisitionState.streaming) {
@@ -365,41 +404,34 @@ class AcquisitionService extends ChangeNotifier {
     }
     await requestPermissions();
     _setState(AcquisitionState.scanning);
-    _seenDevices.removeWhere((device) => device.kind != DeviceKind.synthetic);
     _publishDevices();
+
+    // 1. Immediately check cached scan results from recent scans
+    for (final result in ble.FlutterBluePlus.lastScanResults) {
+      _handleBleScanResult(result, autoConnect: false);
+    }
+
+    // 2. Immediately query system devices (bonded or already connected to OS GATT)
+    try {
+      final systemDevs = await ble.FlutterBluePlus.systemDevices([]);
+      for (final sysDev in systemDevs) {
+        _handleBleDevice(sysDev, autoConnect: false);
+      }
+    } catch (e) {
+      debugPrint('[AcquisitionService] systemDevices query error: $e');
+    }
 
     await _bleScanSub?.cancel();
     _bleScanSub = ble.FlutterBluePlus.scanResults.listen((results) {
       for (final result in results) {
-        final name = result.device.platformName.isNotEmpty
-            ? result.device.platformName
-            : result.advertisementData.advName;
-        final profile = _matchingProfile(
-          name,
-          result.device.remoteId.toString(),
-          ConnectionTransport.bluetoothLe,
-        );
-        if (profile == null) continue;
-        final device = EegDevice(
-          name: name.isEmpty ? 'Unknown BLE device' : name,
-          id: result.device.remoteId.toString(),
-          kind: _kindForProfile(profile),
-          isBle: true,
-          profileId: profile.id,
-        );
-        _addDevice(device);
-        if (autoConnect && profile.autoConnect) {
-          debugPrint(
-            '[AcquisitionService] Found BLE target device $name (${device.id}). Auto-connecting!',
-          );
-          unawaited(connect(device));
-          return;
-        }
+        _handleBleScanResult(result, autoConnect: autoConnect);
       }
     });
 
     await _classicScanSub?.cancel();
-    if (Platform.isAndroid) {
+    final hasClassicProfiles = (_settings?.deviceProfiles ?? defaultDeviceProfiles())
+        .any((p) => p.enabled && p.transport == ConnectionTransport.bluetoothClassic);
+    if (Platform.isAndroid && hasClassicProfiles) {
       _classicScanSub = classic.FlutterBluetoothSerial.instance
           .startDiscovery()
           .listen((result) {
@@ -660,6 +692,11 @@ class AcquisitionService extends ChangeNotifier {
     } catch (_) {}
     _classicConnection = null;
     try {
+      if (Platform.isAndroid && _bleDevice != null) {
+        try {
+          await _bleDevice!.clearGattCache();
+        } catch (_) {}
+      }
       await _bleDevice?.disconnect();
     } catch (_) {}
     _bleDevice = null;
@@ -775,6 +812,12 @@ class AcquisitionService extends ChangeNotifier {
     int retries = 5;
     while (retries > 0) {
       try {
+        if (_bleDevice!.isConnected) {
+          debugPrint(
+            '[AcquisitionService] Device ${device.name} is already connected to GATT.',
+          );
+          break;
+        }
         await _bleDevice!.connect(
           license: ble.License.nonprofit,
           timeout: const Duration(seconds: 12),
@@ -788,9 +831,14 @@ class AcquisitionService extends ChangeNotifier {
         );
         if (retries == 0) rethrow;
         try {
+          if (Platform.isAndroid) {
+            try {
+              await _bleDevice!.clearGattCache();
+            } catch (_) {}
+          }
           await _bleDevice!.disconnect();
         } catch (_) {}
-        await Future.delayed(const Duration(milliseconds: 2000));
+        await Future.delayed(const Duration(milliseconds: 1500));
       }
     }
     await _bleConnectionStateSub?.cancel();

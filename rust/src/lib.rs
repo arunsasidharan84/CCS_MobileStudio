@@ -361,11 +361,28 @@ fn score_epoch(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
 fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<SleepScore> {
     let centered = center_epoch(epoch);
     let signal_scale = robust_signal_scale(&centered);
-    if signal_scale < 1e-6 {
-        return Some(SleepScore {
+    // Physiologically plausible scalp EEG RMS is ~5–100 µV.
+    // Signals < 2.5 µV (open/disconnected leads with thermal/ADC noise) or
+    // > 400.0 µV (saturated, railed, or floating mains hum) indicate poor signal / leads off.
+    if signal_scale < 2.5 || signal_scale > 400.0 {
+        let score = SleepScore {
+            ready: true,
+            stage: STAGE_WAKE,
+            confidence: 0.0,
+            epoch_index: state.epoch_index,
+            delta_power: 0.0,
+            theta_power: 0.0,
+            alpha_power: 0.0,
+            beta_power: 0.0,
             artifact_ratio: 1.0,
-            ..SleepScore::default()
-        });
+            prob_wake: 1.0,
+            prob_n1: 0.0,
+            prob_n2: 0.0,
+            prob_n3: 0.0,
+            prob_rem: 0.0,
+        };
+        state.epoch_index += 1;
+        return Some(score);
     }
     let filtered = bandpass_notch(
         &centered,
@@ -426,11 +443,25 @@ fn score_epoch_tinysleepnet(state: &mut SleepState, epoch: &[f64]) -> Option<Sle
 fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
     let centered = center_epoch(epoch);
     let signal_scale = robust_signal_scale(&centered);
-    if signal_scale < 1e-6 {
-        return SleepScore {
+    if signal_scale < 2.5 || signal_scale > 400.0 {
+        let score = SleepScore {
+            ready: true,
+            stage: STAGE_WAKE,
+            confidence: 0.0,
+            epoch_index: state.epoch_index,
+            delta_power: 0.0,
+            theta_power: 0.0,
+            alpha_power: 0.0,
+            beta_power: 0.0,
             artifact_ratio: 1.0,
-            ..SleepScore::default()
+            prob_wake: 1.0,
+            prob_n1: 0.0,
+            prob_n2: 0.0,
+            prob_n3: 0.0,
+            prob_rem: 0.0,
         };
+        state.epoch_index += 1;
+        return score;
     }
     let filtered = bandpass_notch(
         &centered,
@@ -453,8 +484,8 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
     let alpha_ratio = alpha / total;
     let beta_ratio = beta / total;
 
-    // This is the causal fallback behind the TinySleepNet boundary. Replace this
-    // function with exported TinySleepNet inference after model conversion.
+    // This is the causal fallback behind the TinySleepNet boundary.
+    // Indeterminate or low-signal epochs default to WAKE, never REM.
     let mut stage = if artifact_ratio > 0.08 || beta_ratio > 0.35 || alpha_ratio > 0.30 {
         STAGE_WAKE
     } else if delta_ratio > 0.50 {
@@ -463,8 +494,10 @@ fn score_epoch_causal(state: &mut SleepState, epoch: &[f64]) -> SleepScore {
         STAGE_N2
     } else if theta_ratio > 0.30 {
         STAGE_N1
-    } else {
+    } else if theta_ratio > 0.22 && delta_ratio < 0.28 && alpha_ratio < 0.22 {
         STAGE_REM
+    } else {
+        STAGE_WAKE
     };
 
     if let Some(previous) = state.causal_stage_history.last().copied() {
@@ -737,6 +770,9 @@ fn stage_confidence(
     beta: f64,
     artifact: f64,
 ) -> f64 {
+    if artifact >= 0.20 {
+        return 0.0;
+    }
     let raw = match stage {
         STAGE_WAKE => alpha.max(beta),
         STAGE_N1 => theta,
@@ -1186,7 +1222,8 @@ mod tests {
             feature_history: Vec::new(),
         };
         let score = score_epoch_causal(&mut state, &vec![42.0; 3000]);
-        assert!(!score.ready);
+        assert!(score.ready);
         assert_eq!(score.artifact_ratio, 1.0);
+        assert_eq!(score.confidence, 0.0);
     }
 }

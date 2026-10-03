@@ -71,6 +71,12 @@ class FileNamingService {
 
   /// EDF recording directory (internal app storage).
   static Future<Directory> _recordingsDir() async {
+    final configured = _configuredOutputDirectory;
+    if (configured != null) {
+      final dir = Directory('$configured/recordings');
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
     final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/recordings');
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -79,6 +85,12 @@ class FileNamingService {
 
   /// Behavioural data directory (internal app storage).
   static Future<Directory> _dataDir() async {
+    final configured = _configuredOutputDirectory;
+    if (configured != null) {
+      final dir = Directory('$configured/data');
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
     final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/data');
     if (!await dir.exists()) await dir.create(recursive: true);

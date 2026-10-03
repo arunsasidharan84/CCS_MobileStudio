@@ -188,8 +188,26 @@ void showDeviceConnectionDialog(BuildContext context) {
   showDialog(context: context, builder: (_) => const DeviceConnectionDialog());
 }
 
-class DeviceConnectionDialog extends StatelessWidget {
+class DeviceConnectionDialog extends StatefulWidget {
   const DeviceConnectionDialog({super.key});
+
+  @override
+  State<DeviceConnectionDialog> createState() => _DeviceConnectionDialogState();
+}
+
+class _DeviceConnectionDialogState extends State<DeviceConnectionDialog> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final multiDevice = context.read<MultiDeviceAcquisitionService>();
+        if (!multiDevice.isScanning && !multiDevice.isBusy) {
+          multiDevice.scan();
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -40,6 +40,14 @@ class SessionManager extends ChangeNotifier {
   /// True while the recording timer is paused due to disconnection.
   bool _timerPaused = false;
 
+  // Stored session parameters to ensure all segments retain original configuration
+  int? _sessionChannelCount;
+  int? _sessionSampleRate;
+  List<String>? _sessionChannelLabels;
+  List<bool>? _sessionEnabledChannels;
+  bool _sessionDcBlock = false;
+  bool _hasStartedSegment = false;
+
   EdfRecorder? _recorder;
   AcquisitionService? _acq;
   SettingsService? _settings;
@@ -168,14 +176,20 @@ class SessionManager extends ChangeNotifier {
         if (_isRecording) {
           _wasRecordingBeforeDisconnect = true;
           _pauseTimer();
-          _stopCurrentSegment();
+          if (_hasStartedSegment) {
+            _stopCurrentSegment();
+          }
         }
       case AcquisitionState.streaming:
         if (_wasRecordingBeforeDisconnect &&
             (_settings?.autoResumeRecordingAfterReconnect ?? true)) {
           _wasRecordingBeforeDisconnect = false;
           _resumeTimer();
-          _startNextSegment();
+          if (!_hasStartedSegment) {
+            _startFirstSegment();
+          } else {
+            _startNextSegment();
+          }
         }
     }
   }
@@ -231,6 +245,18 @@ class SessionManager extends ChangeNotifier {
     _startDurationTicker();
     unawaited(DeviceAwakeService.acquire());
 
+    // Save session configuration parameters
+    _sessionChannelCount = channelCount;
+    _sessionSampleRate = sampleRate;
+    _sessionChannelLabels =
+        channelLabels != null ? List<String>.from(channelLabels) : null;
+    _sessionEnabledChannels =
+        enabledChannels != null ? List<bool>.from(enabledChannels) : null;
+    _sessionDcBlock =
+        _acq?.connectedDeviceProfile?.protocol == DeviceProtocol.xampBinary ||
+        _acq?.connectedDeviceProfile?.protocol == DeviceProtocol.orbitJson;
+    _hasStartedSegment = false;
+
     final recorder = _recorder;
     if (recorder == null) {
       await DeviceAwakeService.release();
@@ -239,38 +265,19 @@ class SessionManager extends ChangeNotifier {
       return null;
     }
 
-    final path = await FileNamingService.edfPath(
-      _subject,
-      _module,
-      _sessionStart!,
-      part: 1,
-      deviceName: _acq?.connectedDeviceLabel,
-    );
-
     try {
       final recordPrimary =
-          (_acq?.currentState == AcquisitionState.streaming &&
-              _acq?.connectedDeviceKind != DeviceKind.generic) ||
-          (!(_multiLsl?.isConnected ?? false) &&
-              _acq?.connectedDeviceProfile == null);
+          _acq?.currentState == AcquisitionState.streaming &&
+          _acq?.connectedDeviceKind != DeviceKind.generic;
       if (recordPrimary) {
-        await recorder.startAtPath(
-          path: path,
-          subject: _subject,
-          channelCount: channelCount,
-          sampleRate: sampleRate,
-          channelLabels: channelLabels,
-          enabledChannels: enabledChannels,
-          dcBlockElectrophysiology:
-              _acq?.connectedDeviceProfile?.protocol ==
-                  DeviceProtocol.xampBinary ||
-              _acq?.connectedDeviceProfile?.protocol ==
-                  DeviceProtocol.orbitJson,
+        await _startFirstSegment();
+      } else {
+        _wasRecordingBeforeDisconnect = true;
+        _pauseTimer();
+        debugPrint(
+          '[SessionManager] Recording queued; waiting for streaming state',
         );
       }
-      await _startConfiguredStreamRecorders(part: 1);
-      await _startLslStreamRecorders(part: 1);
-      await _startDirectDeviceRecorders(part: 1);
     } catch (_) {
       _isRecording = false;
       _timerSegmentStart = null;
@@ -280,9 +287,8 @@ class SessionManager extends ChangeNotifier {
     }
 
     notifyListeners();
-    debugPrint('[SessionManager] Started segment 1 → $path');
     return recorder.isRecording
-        ? path
+        ? recorder.path
         : _streamRecorders.values.firstOrNull?.path;
   }
 
@@ -340,7 +346,48 @@ class SessionManager extends ChangeNotifier {
         );
     _markerLog.add(recorded);
     _eventMarkers.add(recorded);
+    unawaited(_writeSingleMarkerToCsv(recorded));
     debugPrint('[SessionManager] Event: $label ($code)');
+  }
+
+  Future<void> _writeSingleMarkerToCsv(StreamMarker marker) async {
+    final start = _sessionStart;
+    if (start == null) return;
+    try {
+      final path = await FileNamingService.markerCsvPath(
+        _subject,
+        _module,
+        start,
+      );
+      final file = File(path);
+      final exists = await file.exists();
+      String cell(Object? value) {
+        final text = value?.toString() ?? '';
+        return '"${text.replaceAll('"', '""')}"';
+      }
+
+      final elapsed =
+          marker.receivedAt.difference(start).inMicroseconds / 1e6;
+      final line = [
+        cell(marker.receivedAt.toIso8601String()),
+        elapsed.toStringAsFixed(6),
+        cell(marker.source),
+        cell(marker.streamId),
+        cell(marker.value),
+        marker.code,
+        marker.lslTimestamp?.toStringAsFixed(9) ?? '',
+      ].join(',');
+
+      if (!exists) {
+        const header =
+            'received_iso,elapsed_seconds,source,stream_id,value,edf_code,lsl_timestamp\n';
+        await file.writeAsString('$header$line\n', flush: true);
+      } else {
+        await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
+      }
+    } catch (e) {
+      debugPrint('[SessionManager] Error writing marker to CSV: $e');
+    }
   }
 
   /// Changes the human-readable label of an event that has already been sent.
@@ -377,6 +424,11 @@ class SessionManager extends ChangeNotifier {
     await _exportMarkerCsv();
     if (paths.isEmpty) return;
     for (final path in paths) {
+      final file = File(path);
+      if (!await file.exists() || await file.length() < 100) {
+        debugPrint('[SessionManager] Skipping empty/incomplete file: $path');
+        continue;
+      }
       final start = _sessionStart;
       final stem = start == null
           ? null
@@ -429,9 +481,39 @@ class SessionManager extends ChangeNotifier {
     );
   }
 
+  Future<void> _startFirstSegment() async {
+    final start = _sessionStart;
+    final recorder = _recorder;
+    if (start == null || recorder == null) return;
+    _segmentIndex = 1;
+    final path = await FileNamingService.edfPath(
+      _subject,
+      _module,
+      start,
+      part: 1,
+      deviceName: _acq?.connectedDeviceLabel,
+    );
+    await recorder.startAtPath(
+      path: path,
+      subject: _subject,
+      channelCount: _sessionChannelCount ?? 16,
+      sampleRate: _sessionSampleRate ?? 250,
+      channelLabels: _sessionChannelLabels,
+      enabledChannels: _sessionEnabledChannels,
+      dcBlockElectrophysiology: _sessionDcBlock,
+    );
+    _hasStartedSegment = true;
+    await _startConfiguredStreamRecorders(part: 1);
+    await _startLslStreamRecorders(part: 1);
+    await _startDirectDeviceRecorders(part: 1);
+    debugPrint('[SessionManager] Started segment 1 → $path');
+    notifyListeners();
+  }
+
   Future<void> _startNextSegment() async {
     final start = _sessionStart;
-    if (start == null || _recorder == null) return;
+    final recorder = _recorder;
+    if (start == null || recorder == null) return;
     _segmentIndex++;
 
     final path = await FileNamingService.edfPath(
@@ -442,16 +524,14 @@ class SessionManager extends ChangeNotifier {
       deviceName: _acq?.connectedDeviceLabel,
     );
 
-    // Get params from the recorder's previous session
-    final rec = _recorder!;
-    await rec.startAtPath(
+    await recorder.startAtPath(
       path: path,
       subject: _subject,
-      channelCount: rec.channelCount,
-      sampleRate: rec.sampleRate,
-      channelLabels: rec.channelLabels,
-      enabledChannels: rec.enabledChannels,
-      dcBlockElectrophysiology: rec.dcBlockElectrophysiology,
+      channelCount: _sessionChannelCount ?? 16,
+      sampleRate: _sessionSampleRate ?? 250,
+      channelLabels: _sessionChannelLabels,
+      enabledChannels: _sessionEnabledChannels,
+      dcBlockElectrophysiology: _sessionDcBlock,
     );
     await _startConfiguredStreamRecorders(part: _segmentIndex);
     await _startLslStreamRecorders(part: _segmentIndex);
@@ -517,7 +597,7 @@ class SessionManager extends ChangeNotifier {
           (_settings?.combineCompatibleStreams ?? true)) {
         continue;
       }
-      if (stream.id == primaryId && (_recorder?.isRecording ?? false)) continue;
+      if (stream.id == primaryId) continue;
       await _startStreamRecorder(profile, stream, part);
     }
   }

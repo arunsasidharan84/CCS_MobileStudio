@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/eeg/acquisition_service.dart';
@@ -15,6 +16,7 @@ import '../../core/models/module_type.dart';
 import '../../core/models/sleep_score.dart';
 import '../../core/models/eeg_sample.dart';
 import '../../core/models/device_profile.dart';
+import '../../core/models/stream_marker.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/services/channel_config_service.dart';
@@ -104,6 +106,16 @@ class _NidraScreenState extends State<NidraScreen>
       notifyFlash: settings.nidraStimNotifyFlash,
       notificationIntervalSecs: settings.nidraStimNotificationIntervalSecs,
     );
+    final savedPlaylist = settings.nidraStimPlaylist
+        .map((m) => StimulusCueItem.fromJson(m))
+        .toList();
+    if (savedPlaylist.isNotEmpty) {
+      _module.stimService.setPlaylist(
+        savedPlaylist,
+        selectedIndex: settings.nidraStimSelectedCueIndex,
+        orderMode: settings.nidraStimOrderMode,
+      );
+    }
 
     _uiRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && context.read<SessionManager>().isRecording) {
@@ -499,7 +511,15 @@ class _NidraScreenState extends State<NidraScreen>
                               );
                             },
                           ),
-                          const SizedBox(height: 16),
+                          if (isRecording) ...[
+                            const SizedBox(height: 8),
+                            _buildRecordingQuickActions(
+                              sessionManager,
+                              stimService,
+                              settings,
+                            ),
+                          ],
+                          const SizedBox(height: 12),
 
                           // Main Tab View
                           Expanded(
@@ -700,6 +720,14 @@ class _NidraScreenState extends State<NidraScreen>
         .toList(growable: false);
     return Column(
       children: [
+        _buildSavingChannelsBanner(
+          context: context,
+          channelConfig: channelConfig,
+          eegService: eegService,
+          isRecording: isRecording,
+          activeColor: lightTeal,
+        ),
+        const SizedBox(height: 10),
         _buildScoringMontageSelector(
           settings: settings,
           signalLabels: signalLabels,
@@ -719,7 +747,7 @@ class _NidraScreenState extends State<NidraScreen>
                 ? Colors.orangeAccent
                 : _getStageColor(score?.stage ?? SleepStage.wake);
             return SizedBox(
-              height: compact ? 280 : 150,
+              height: compact ? 290 : 165,
               child: Flex(
                 direction: compact ? Axis.vertical : Axis.horizontal,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -727,7 +755,10 @@ class _NidraScreenState extends State<NidraScreen>
                   Expanded(
                     flex: 2,
                     child: Container(
-                      padding: const EdgeInsets.all(18),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF1E293B),
                         borderRadius: BorderRadius.circular(16),
@@ -789,11 +820,11 @@ class _NidraScreenState extends State<NidraScreen>
                             children: [
                               Text(
                                 poorSignal
-                                    ? 'POOR SIGNAL'
+                                    ? 'LEADS OFF'
                                     : (score?.stage.label ?? 'WAITING'),
                                 style: TextStyle(
                                   color: stageColor,
-                                  fontSize: poorSignal ? 27 : 38,
+                                  fontSize: poorSignal ? 28 : 38,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -802,14 +833,14 @@ class _NidraScreenState extends State<NidraScreen>
                                 child: Text(
                                   score != null
                                       ? (poorSignal
-                                            ? '${(score.artifactRatio * 100).round()}% artifact'
+                                            ? 'Poor signal (${(score.artifactRatio * 100).round()}% art) • Check leads'
                                             : '${(score.confidence * 100).toStringAsFixed(1)}% conf')
                                       : 'Waiting for epochs...',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: Colors.white.withOpacity(0.7),
-                                    fontSize: 15,
+                                    fontSize: 14,
                                   ),
                                 ),
                               ),
@@ -972,6 +1003,7 @@ class _NidraScreenState extends State<NidraScreen>
                                   scores: module.scores,
                                   recordingStart:
                                       module.sessionManager.sessionStart,
+                                  markers: module.sessionManager.markerLog,
                                 )
                               : _StageProbabilityPainter(
                                   scores: module.scores,
@@ -982,6 +1014,7 @@ class _NidraScreenState extends State<NidraScreen>
                                     for (final stage in SleepStage.values)
                                       stage: _getStageColor(stage),
                                   },
+                                  markers: module.sessionManager.markerLog,
                                 ),
                           size: Size.infinite,
                         )
@@ -1157,6 +1190,332 @@ class _NidraScreenState extends State<NidraScreen>
             style: const TextStyle(color: Colors.white38, fontSize: 11),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRecordingQuickActions(
+    SessionManager sessionManager,
+    AuditoryStimService stimService,
+    SettingsService settings,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: stimService.isPlayingAudio
+                  ? const Color(0xFFDC2626)
+                  : const Color(0xFFF59E0B),
+              foregroundColor: stimService.isPlayingAudio ? Colors.white : Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () async {
+              if (stimService.isPlayingAudio) {
+                await stimService.stopPlayback();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Audio stimulus playback stopped'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+                return;
+              }
+              await stimService.sendStimulus();
+              if (mounted) {
+                final cue = stimService.currentCueItem;
+                final desc = cue != null
+                    ? '${cue.name} (Marker ${cue.markerCode})'
+                    : stimService.stimType;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Stimulus triggered: $desc'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            icon: Icon(
+              stimService.isPlayingAudio ? Icons.stop_circle : Icons.bolt,
+              size: 18,
+              color: stimService.isPlayingAudio ? Colors.white : Colors.black,
+            ),
+            label: Text(
+              stimService.isPlayingAudio
+                  ? 'Stop Audio'
+                  : (stimService.currentCueItem != null
+                      ? 'Stim: ${stimService.currentCueItem!.name}'
+                      : 'Stimulus'),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: stimService.isPlayingAudio ? Colors.white : Colors.black,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(height: 24, width: 1, color: Colors.white24),
+          const SizedBox(width: 12),
+          const Text(
+            'Markers:',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: settings.activeManualMarkers.map((markerDef) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: markerDef.color,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(60, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () {
+                        sessionManager.recordEvent(
+                          markerDef.name,
+                          markerDef.code,
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Tagged ${markerDef.name} (${markerDef.code})',
+                            ),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: Text(
+                        '${markerDef.name} (${markerDef.code})',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavingChannelsBanner({
+    required BuildContext context,
+    required ChannelConfigService channelConfig,
+    required AcquisitionService eegService,
+    required bool isRecording,
+    required Color activeColor,
+  }) {
+    final labels = eegService.displayChannelLabels(eegService.channelCount);
+    final enabled = eegService.recordingEnabledChannels(channelConfig.enabled);
+    final activeCount = enabled.where((b) => b).length;
+    final activeLabels = [
+      for (var i = 0; i < labels.length; i++)
+        if (i < enabled.length && enabled[i]) labels[i],
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF172033),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: activeColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.save_outlined, color: activeColor, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'SAVING CHANNELS TO EDF',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: activeColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$activeCount of ${labels.length} active @ ${eegService.sampleRate.toInt()} Hz',
+                        style: TextStyle(
+                          color: activeColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  activeLabels.isEmpty
+                      ? 'No channels enabled'
+                      : activeLabels.join(', '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: activeColor,
+              side: BorderSide(color: activeColor.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: isRecording
+                ? null
+                : () => _showChannelConfigDialog(
+                      context,
+                      channelConfig,
+                      eegService,
+                    ),
+            icon: const Icon(Icons.tune, size: 16),
+            label: Text(isRecording ? 'Config Locked' : 'Configure Channels'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showChannelConfigDialog(
+    BuildContext context,
+    ChannelConfigService channelConfig,
+    AcquisitionService eegService,
+  ) async {
+    final labels = List<String>.of(channelConfig.labels);
+    final enabled = List<bool>.of(channelConfig.enabled);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final activeCount = enabled.where((b) => b).length;
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E293B),
+            title: Row(
+              children: [
+                const Icon(Icons.tune, color: Color(0xFF14B8A6)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'EDF Saving Channels ($activeCount/${labels.length} active)',
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              height: 400,
+              child: Column(
+                children: [
+                  const Text(
+                    'All enabled channels will be saved into the session EDF file. '
+                    'TinySleepNet auto-scoring will use the derivation chosen in the Scoring Montage.',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  const Divider(color: Colors.white24),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: labels.length,
+                      itemBuilder: (context, index) {
+                        final isEnabled =
+                            index < enabled.length ? enabled[index] : true;
+                        return CheckboxListTile(
+                          dense: true,
+                          title: Text(
+                            'Ch ${index + 1}: ${labels[index]}',
+                            style: TextStyle(
+                              color: isEnabled ? Colors.white : Colors.white38,
+                              fontWeight:
+                                  isEnabled ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          value: isEnabled,
+                          activeColor: const Color(0xFF14B8A6),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            channelConfig.setEnabled(index, val);
+                            setDialogState(() {
+                              if (index < enabled.length) enabled[index] = val;
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  channelConfig.applyDefaults();
+                  Navigator.of(dialogCtx).pop();
+                },
+                child: const Text(
+                  'Reset Defaults',
+                  style: TextStyle(color: Colors.orangeAccent),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF14B8A6),
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1455,8 +1814,9 @@ class _NidraScreenState extends State<NidraScreen>
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         SizedBox(
-                          width: 190,
+                          width: 215,
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: stim.mode,
                             dropdownColor: const Color(0xFF111827),
                             decoration: const InputDecoration(
@@ -1592,35 +1952,474 @@ class _NidraScreenState extends State<NidraScreen>
                       ],
                     ),
                     if (stim.stimType == 'audio') ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              stim.audioFilePath.isEmpty
-                                  ? 'No audio file selected'
-                                  : stim.audioFilePath,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: stim.audioFilePath.isEmpty
-                                    ? Colors.white38
-                                    : Colors.white70,
-                              ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: lightTeal.withOpacity(0.35),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.queue_music, color: lightTeal, size: 22),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Stimulus Sound Library (${stim.playlist.length} cues)',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                                // Order mode: Sequential vs Randomized
+                                Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1E293B),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      ChoiceChip(
+                                        label: const Text('Sequential 1→2→3'),
+                                        selected: stim.orderMode == 'sequential',
+                                        onSelected: (val) {
+                                          if (val) {
+                                            stim.setOrderMode('sequential');
+                                            _persistStimSettings(stim);
+                                          }
+                                        },
+                                        selectedColor: lightTeal.withOpacity(0.3),
+                                        labelStyle: TextStyle(
+                                          color: stim.orderMode == 'sequential'
+                                              ? lightTeal
+                                              : Colors.white70,
+                                          fontSize: 12,
+                                          fontWeight: stim.orderMode == 'sequential'
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      ChoiceChip(
+                                        label: const Text('Randomized ⚄'),
+                                        selected: stim.orderMode == 'random',
+                                        onSelected: (val) {
+                                          if (val) {
+                                            stim.setOrderMode('random');
+                                            _persistStimSettings(stim);
+                                          }
+                                        },
+                                        selectedColor: lightTeal.withOpacity(0.3),
+                                        labelStyle: TextStyle(
+                                          color: stim.orderMode == 'random'
+                                              ? lightTeal
+                                              : Colors.white70,
+                                          fontSize: 12,
+                                          fontWeight: stim.orderMode == 'random'
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => _pickStimAudio(stim),
-                            icon: const Icon(Icons.audio_file),
-                            label: const Text('Choose audio'),
-                          ),
-                        ],
-                      ),
-                      const Text(
-                        'The path is saved in the shared JSON. Copy the same audio '
-                        'file to each tablet and choose it once if its local path differs.',
-                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                            const SizedBox(height: 12),
+                            // Toolbar for library
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: lightTeal,
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                  onPressed: () => _pickPlaylistFiles(stim),
+                                  icon: const Icon(Icons.file_upload, size: 16),
+                                  label: const Text('Add Sound Files'),
+                                ),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF334155),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                  onPressed: () => _importFolderCues(stim),
+                                  icon: const Icon(Icons.folder_open, size: 16),
+                                  label: const Text('Import Folder'),
+                                ),
+                                if (stim.playlist.isNotEmpty)
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFFFCA5A5),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                    onPressed: () => _confirmClearPlaylist(stim),
+                                    icon: const Icon(Icons.delete_sweep, size: 16),
+                                    label: const Text('Clear Library'),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (stim.playlist.isEmpty)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(22),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E293B),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Icon(
+                                      Icons.audio_file_outlined,
+                                      color: Colors.white38,
+                                      size: 38,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'No audio cues in playlist',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Tap "Import Folder" to select a folder of word/sound files, or "Add Sound Files" to select individual audio files.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white38,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    if (stim.audioFilePath.isNotEmpty) ...[
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        'Default fallback: ${stim.audioFilePath.split(Platform.pathSeparator).last}',
+                                        style: const TextStyle(
+                                          color: Colors.white54,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              )
+                            else ...[
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 320),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: stim.playlist.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 6),
+                                  itemBuilder: (context, index) {
+                                    final cue = stim.playlist[index];
+                                    final isSelected =
+                                        index == stim.selectedCueIndex;
+                                    return Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(10),
+                                        onTap: () {
+                                          stim.selectCue(index);
+                                          _persistStimSettings(stim);
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? const Color(0xFF0F766E)
+                                                    .withOpacity(0.28)
+                                                : const Color(0xFF1E293B),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: isSelected
+                                                  ? lightTeal
+                                                  : Colors.white10,
+                                              width: isSelected ? 2 : 1,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              // Up/Down arrows
+                                              Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  InkWell(
+                                                    onTap: index > 0
+                                                        ? () {
+                                                            stim.reorderCue(
+                                                              index,
+                                                              index - 1,
+                                                            );
+                                                            _persistStimSettings(
+                                                              stim,
+                                                            );
+                                                          }
+                                                        : null,
+                                                    child: Icon(
+                                                      Icons.keyboard_arrow_up,
+                                                      size: 18,
+                                                      color: index > 0
+                                                          ? Colors.white70
+                                                          : Colors.white24,
+                                                    ),
+                                                  ),
+                                                  InkWell(
+                                                    onTap: index <
+                                                            stim.playlist.length -
+                                                                1
+                                                        ? () {
+                                                            stim.reorderCue(
+                                                              index,
+                                                              index + 2,
+                                                            );
+                                                            _persistStimSettings(
+                                                              stim,
+                                                            );
+                                                          }
+                                                        : null,
+                                                    child: Icon(
+                                                      Icons.keyboard_arrow_down,
+                                                      size: 18,
+                                                      color: index <
+                                                              stim.playlist
+                                                                      .length -
+                                                                  1
+                                                          ? Colors.white70
+                                                          : Colors.white24,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(width: 8),
+                                              // Position badge
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 7,
+                                                  vertical: 3,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isSelected
+                                                      ? lightTeal
+                                                      : const Color(0xFF334155),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  '#${index + 1}',
+                                                  style: TextStyle(
+                                                    color: isSelected
+                                                        ? Colors.black
+                                                        : Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              // Name & Details
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Row(
+                                                      children: [
+                                                        Flexible(
+                                                          child: Text(
+                                                            cue.name,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: TextStyle(
+                                                              color: isSelected
+                                                                  ? lightTeal
+                                                                  : Colors.white,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 13,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        if (isSelected) ...[
+                                                          const SizedBox(
+                                                            width: 6,
+                                                          ),
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .symmetric(
+                                                              horizontal: 6,
+                                                              vertical: 1.5,
+                                                            ),
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color: stim
+                                                                      .isPlayingAudio
+                                                                  ? const Color(
+                                                                      0xFFDC2626,
+                                                                    )
+                                                                  : const Color(
+                                                                      0xFF10B981,
+                                                                    ),
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                        4,
+                                                                      ),
+                                                            ),
+                                                            child: Text(
+                                                              stim.isPlayingAudio
+                                                                  ? 'PLAYING'
+                                                                  : 'QUEUED',
+                                                              style:
+                                                                  const TextStyle(
+                                                                color: Colors
+                                                                    .white,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                fontSize: 9,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      'Played ${cue.playCount}x • Tap row to manually select for next stim',
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Colors.white38,
+                                                        fontSize: 10,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              // Clickable Marker Code Chip
+                                              InkWell(
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                onTap: () => _editCueMarkerCode(
+                                                  stim,
+                                                  index,
+                                                ),
+                                                child: Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(
+                                                      0xFF1E293B,
+                                                    ),
+                                                    border: Border.all(
+                                                      color: const Color(
+                                                        0xFF38BDF8,
+                                                      ),
+                                                      width: 1,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        'Marker: ${cue.markerCode}',
+                                                        style: const TextStyle(
+                                                          color: Color(
+                                                            0xFF38BDF8,
+                                                          ),
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      const Icon(
+                                                        Icons.edit,
+                                                        size: 11,
+                                                        color: Color(
+                                                          0xFF38BDF8,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              // Remove item
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.close,
+                                                  size: 16,
+                                                  color: Colors.white38,
+                                                ),
+                                                tooltip: 'Remove cue',
+                                                onPressed: () {
+                                                  stim.removeCue(index);
+                                                  _persistStimSettings(stim);
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ],
                     const SizedBox(height: 16),
@@ -1682,7 +2481,7 @@ class _NidraScreenState extends State<NidraScreen>
                           stim.setRefractory,
                         ),
                         numberSetting(
-                          'EDF stimulus marker',
+                          'Base stimulus marker',
                           _module.stimulusMarkerCode,
                           1,
                           32767,
@@ -1694,17 +2493,72 @@ class _NidraScreenState extends State<NidraScreen>
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: () async {
-                        await stim.sendStimulus();
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(stim.statusText)),
-                        );
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Send Stimulus'),
+                    const SizedBox(height: 20),
+                    // Unified Primary Action Button (transforms to Stop when audio is playing)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: stim.isPlayingAudio
+                          ? ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFDC2626), // Eye-catching Red
+                                foregroundColor: Colors.white,
+                                elevation: 8,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () async {
+                                await stim.stopPlayback();
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Audio stimulus playback stopped.'),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.stop_circle, size: 26),
+                              label: const Text(
+                                'STOP AUDIO PLAYBACK',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            )
+                          : FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: lightTeal,
+                                foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () async {
+                                await stim.sendStimulus();
+                                if (!context.mounted) return;
+                                final cue = stim.currentCueItem;
+                                final desc = cue != null
+                                    ? '${cue.name} (Marker ${cue.markerCode})'
+                                    : stim.stimType;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Stimulus triggered: $desc'),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.play_arrow, size: 24),
+                              label: Text(
+                                stim.currentCueItem != null
+                                    ? 'Send Stimulus: "${stim.currentCueItem!.name}" (Marker: ${stim.currentCueItem!.markerCode})'
+                                    : 'Send Stimulus (${stim.stimType})',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -1716,16 +2570,212 @@ class _NidraScreenState extends State<NidraScreen>
     );
   }
 
-  Future<void> _pickStimAudio(AuditoryStimService stim) async {
+  Future<void> _pickPlaylistFiles(AuditoryStimService stim) async {
     final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Choose Train NIDRA stimulus audio',
+      dialogTitle: 'Select audio cue files for playlist',
       type: FileType.custom,
+      allowMultiple: true,
       allowedExtensions: const ['wav', 'mp3', 'm4a', 'aac', 'ogg'],
     );
-    final path = picked?.files.single.path;
-    if (path == null) return;
-    stim.setAudioFilePath(path);
+    if (picked == null || picked.files.isEmpty) return;
+
+    final docDir = await getApplicationDocumentsDirectory();
+    final stimDir = Directory('${docDir.path}/stim_audio');
+    if (!await stimDir.exists()) {
+      await stimDir.create(recursive: true);
+    }
+
+    final newItems = <StimulusCueItem>[];
+    var nextMarkerCode = _module.stimulusMarkerCode + stim.playlist.length;
+
+    for (final file in picked.files) {
+      final path = file.path;
+      if (path == null) continue;
+      String destPath = path;
+      try {
+        final dest = '${stimDir.path}/${file.name}';
+        await File(path).copy(dest);
+        destPath = dest;
+      } catch (e) {
+        debugPrint('[NidraScreen] Error copying ${file.name}: $e');
+      }
+      newItems.add(
+        StimulusCueItem(
+          id: '${DateTime.now().microsecondsSinceEpoch}_${file.name}',
+          name: file.name,
+          filePath: destPath,
+          markerCode: nextMarkerCode++,
+        ),
+      );
+    }
+    stim.addCues(newItems);
     _persistStimSettings(stim);
+  }
+
+  Future<void> _importFolderCues(AuditoryStimService stim) async {
+    final selectedDir = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select folder containing audio cue files',
+    );
+    if (selectedDir == null) return;
+
+    final dir = Directory(selectedDir);
+    if (!await dir.exists()) return;
+
+    final docDir = await getApplicationDocumentsDirectory();
+    final stimDir = Directory('${docDir.path}/stim_audio');
+    if (!await stimDir.exists()) {
+      await stimDir.create(recursive: true);
+    }
+
+    final audioExtensions = {'.wav', '.mp3', '.m4a', '.aac', '.ogg'};
+    final files = dir
+        .listSync(followLinks: false)
+        .whereType<File>()
+        .where((f) {
+          final ext = f.path.contains('.')
+              ? f.path.substring(f.path.lastIndexOf('.')).toLowerCase()
+              : '';
+          return audioExtensions.contains(ext);
+        })
+        .toList();
+
+    files.sort((a, b) {
+      final nameA = a.path.split(Platform.pathSeparator).last;
+      final nameB = b.path.split(Platform.pathSeparator).last;
+      return nameA.compareTo(nameB);
+    });
+
+    if (files.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No audio files (.wav, .mp3, .m4a) found in selected folder.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final newItems = <StimulusCueItem>[];
+    var nextMarkerCode = _module.stimulusMarkerCode + stim.playlist.length;
+
+    for (final file in files) {
+      final name = file.path.split(Platform.pathSeparator).last;
+      String destPath = file.path;
+      try {
+        final dest = '${stimDir.path}/$name';
+        await file.copy(dest);
+        destPath = dest;
+      } catch (e) {
+        debugPrint('[NidraScreen] Error copying $name: $e');
+      }
+      newItems.add(
+        StimulusCueItem(
+          id: '${DateTime.now().microsecondsSinceEpoch}_$name',
+          name: name,
+          filePath: destPath,
+          markerCode: nextMarkerCode++,
+        ),
+      );
+    }
+    stim.addCues(newItems);
+    _persistStimSettings(stim);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported ${newItems.length} audio file(s) into library.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _editCueMarkerCode(AuditoryStimService stim, int index) async {
+    final cue = stim.playlist[index];
+    final controller = TextEditingController(text: cue.markerCode.toString());
+    final newCode = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text(
+          'Marker Code for "${cue.name}"',
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This integer code will be stamped into the EDF marker channel and recorded in the CSV marker log whenever this cue is presented.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'EDF Marker Code (1–32767)',
+                hintText: 'e.g. 41',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = int.tryParse(controller.text.trim());
+              Navigator.of(context).pop(val);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newCode != null && newCode > 0) {
+      stim.updateCueMarkerCode(index, newCode);
+      _persistStimSettings(stim);
+    }
+  }
+
+  Future<void> _confirmClearPlaylist(AuditoryStimService stim) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text(
+          'Clear Sound Library?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'This will remove all cues from the active playlist library. Audio files will remain on disk.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      stim.clearPlaylist();
+      _persistStimSettings(stim);
+    }
   }
 
   void _persistStimSettings(AuditoryStimService stim) {
@@ -1748,6 +2798,10 @@ class _NidraScreenState extends State<NidraScreen>
       settings.nidraStimNotificationIntervalSecs =
           stim.notificationIntervalSecs;
       settings.nidraStimMarkerCode = _module.stimulusMarkerCode;
+      settings.nidraStimPlaylist =
+          stim.playlist.map((cue) => cue.toJson()).toList();
+      settings.nidraStimOrderMode = stim.orderMode;
+      settings.nidraStimSelectedCueIndex = stim.selectedCueIndex;
     });
   }
 
@@ -1763,10 +2817,15 @@ class _NidraScreenState extends State<NidraScreen>
 }
 
 class _HypnogramPainter extends CustomPainter {
-  _HypnogramPainter({required this.scores, required this.recordingStart});
+  _HypnogramPainter({
+    required this.scores,
+    required this.recordingStart,
+    this.markers = const [],
+  });
 
   final List<SleepScoreResult> scores;
   final DateTime? recordingStart;
+  final List<StreamMarker> markers;
   static const List<SleepStage> stages = [
     SleepStage.wake,
     SleepStage.rem,
@@ -1867,12 +2926,37 @@ class _HypnogramPainter extends CustomPainter {
       }
     }
     canvas.drawPath(path, paint);
+
+    // Draw event markers (stimuli and manual markers) along the timeline
+    if (recordingStart != null && markers.isNotEmpty) {
+      final markerLinePaint = Paint()..strokeWidth = 1.5;
+      for (final marker in markers) {
+        final elapsed =
+            marker.receivedAt.difference(recordingStart!).inMilliseconds /
+            1000.0;
+        if (elapsed < 0 || elapsed > elapsedSeconds) continue;
+        final x = leftMargin + plotWidth * (elapsed / elapsedSeconds);
+        final isStim = marker.value.toLowerCase().contains('stim');
+        final markerColor =
+            isStim ? const Color(0xFFFBBF24) : const Color(0xFF38BDF8);
+        markerLinePaint.color = markerColor.withValues(alpha: 0.75);
+        canvas.drawLine(Offset(x, 0), Offset(x, plotHeight), markerLinePaint);
+
+        final pin = Path()
+          ..moveTo(x, 0)
+          ..lineTo(x - 3.5, 6)
+          ..lineTo(x + 3.5, 6)
+          ..close();
+        canvas.drawPath(pin, Paint()..color = markerColor);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(_HypnogramPainter old) =>
       old.scores.length != scores.length ||
-      old.recordingStart != recordingStart;
+      old.recordingStart != recordingStart ||
+      old.markers.length != markers.length;
 
   static String _elapsedLabel(int seconds) {
     final hours = seconds ~/ 3600;
@@ -1889,12 +2973,14 @@ class _StageProbabilityPainter extends CustomPainter {
     required this.stages,
     required this.recordingStart,
     required this.colors,
+    this.markers = const [],
   });
 
   final List<SleepScoreResult> scores;
   final Set<SleepStage> stages;
   final DateTime? recordingStart;
   final Map<SleepStage, Color> colors;
+  final List<StreamMarker> markers;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1995,6 +3081,30 @@ class _StageProbabilityPainter extends CustomPainter {
         );
       }
     }
+
+    // Draw event markers (stimuli and manual markers) along the probability plot timeline
+    if (recordingStart != null && markers.isNotEmpty) {
+      final markerLinePaint = Paint()..strokeWidth = 1.5;
+      for (final marker in markers) {
+        final elapsed =
+            marker.receivedAt.difference(recordingStart!).inMilliseconds /
+            1000.0;
+        if (elapsed < 0 || elapsed > elapsedSeconds) continue;
+        final x = leftMargin + plotWidth * (elapsed / elapsedSeconds);
+        final isStim = marker.value.toLowerCase().contains('stim');
+        final markerColor =
+            isStim ? const Color(0xFFFBBF24) : const Color(0xFF38BDF8);
+        markerLinePaint.color = markerColor.withValues(alpha: 0.75);
+        canvas.drawLine(Offset(x, 0), Offset(x, plotHeight), markerLinePaint);
+
+        final pin = Path()
+          ..moveTo(x, 0)
+          ..lineTo(x - 3.5, 6)
+          ..lineTo(x + 3.5, 6)
+          ..close();
+        canvas.drawPath(pin, Paint()..color = markerColor);
+      }
+    }
   }
 
   static double _probabilityForStage(
@@ -2013,5 +3123,6 @@ class _StageProbabilityPainter extends CustomPainter {
       old.scores.length != scores.length ||
       old.recordingStart != recordingStart ||
       old.stages.length != stages.length ||
+      old.markers.length != markers.length ||
       !old.stages.containsAll(stages);
 }

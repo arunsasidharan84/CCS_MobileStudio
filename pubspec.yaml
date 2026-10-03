@@ -1,7 +1,7 @@
 name: ccs_mobile_studio
 description: "CCS Mobile Studio - Unified EEG, ERP, sleep and neuro-cognitive research platform"
 publish_to: 'none'
-version: 1.0.6+7
+version: 1.0.7+8
 
 environment:
   sdk: ^3.11.5

@@ -48,3 +48,6 @@ app.*.map.json
 rust/target/
 **/target/
 Cargo.lock.bak
+
+# Local data analysis scripts
+analysis/

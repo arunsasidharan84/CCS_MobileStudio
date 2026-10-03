@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/models/sleep_score.dart';
 import '../../core/services/alert_service.dart';
+import 'stimulus_cue_item.dart';
+
+export 'stimulus_cue_item.dart';
 
 /// Auditory Closed-Loop Stimulation (ACLS) service for Train NIDRA.
 ///
@@ -17,11 +20,19 @@ import '../../core/services/alert_service.dart';
 /// activity or induce lucid dreaming protocols.
 class AuditoryStimService extends ChangeNotifier {
   AuditoryStimService({required this.alertService, DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+    : _now = now ?? DateTime.now {
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      final playing = state == PlayerState.playing;
+      if (_isPlayingAudio != playing) {
+        _isPlayingAudio = playing;
+        notifyListeners();
+      }
+    });
+  }
 
   final AlertService alertService;
   final DateTime Function() _now;
-  void Function(String label)? onStimulusPresented;
+  void Function(String label, [int? markerCode])? onStimulusPresented;
 
   // Configuration settings
   bool _enabled = false;
@@ -40,9 +51,17 @@ class AuditoryStimService extends ChangeNotifier {
   int _toneDurationMs = 300;
   String _audioFilePath = '';
   double _volume = 0.85;
+  int _markerCode = 40;
   final AudioPlayer _audioPlayer = AudioPlayer()
     ..setReleaseMode(ReleaseMode.stop);
   final Map<String, Uint8List> _toneCache = {};
+
+  // Stimulus Cue Playlist (for multiple sounds/words in a folder)
+  final List<StimulusCueItem> _playlist = [];
+  int _selectedCueIndex = 0;
+  String _orderMode = 'sequential'; // 'sequential' or 'random'
+  bool _isPlayingAudio = false;
+  final math.Random _random = math.Random();
 
   // State machine tracking
   String _statusText = 'Idle (Disabled)';
@@ -75,6 +94,7 @@ class AuditoryStimService extends ChangeNotifier {
   int get toneDurationMs => _toneDurationMs;
   String get audioFilePath => _audioFilePath;
   double get volume => _volume;
+  int get markerCode => _markerCode;
   String get statusText => _statusText;
   bool get isStimulating => _isStimulating;
   int get totalStimBursts => _totalStimBursts;
@@ -96,6 +116,113 @@ class AuditoryStimService extends ChangeNotifier {
       0,
       _refractorySecs,
     );
+  }
+
+  // Playlist getters
+  List<StimulusCueItem> get playlist => List.unmodifiable(_playlist);
+  int get selectedCueIndex => _selectedCueIndex;
+  String get orderMode => _orderMode;
+  bool get isPlayingAudio => _isPlayingAudio;
+
+  StimulusCueItem? get currentCueItem {
+    if (_playlist.isEmpty) return null;
+    if (_selectedCueIndex < 0 || _selectedCueIndex >= _playlist.length) {
+      return _playlist.first;
+    }
+    return _playlist[_selectedCueIndex];
+  }
+
+  void setOrderMode(String value) {
+    if (!const ['sequential', 'random'].contains(value)) return;
+    _orderMode = value;
+    notifyListeners();
+  }
+
+  void selectCue(int index) {
+    if (index >= 0 && index < _playlist.length) {
+      _selectedCueIndex = index;
+      notifyListeners();
+    }
+  }
+
+  void reorderCue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _playlist.length) return;
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    if (newIndex < 0 || newIndex >= _playlist.length) return;
+    final item = _playlist.removeAt(oldIndex);
+    _playlist.insert(newIndex, item);
+    if (_selectedCueIndex == oldIndex) {
+      _selectedCueIndex = newIndex;
+    } else if (oldIndex < _selectedCueIndex && newIndex >= _selectedCueIndex) {
+      _selectedCueIndex--;
+    } else if (oldIndex > _selectedCueIndex && newIndex <= _selectedCueIndex) {
+      _selectedCueIndex++;
+    }
+    notifyListeners();
+  }
+
+  void addCue(StimulusCueItem item) {
+    _playlist.add(item);
+    notifyListeners();
+  }
+
+  void addCues(List<StimulusCueItem> items) {
+    _playlist.addAll(items);
+    notifyListeners();
+  }
+
+  void removeCue(int index) {
+    if (index >= 0 && index < _playlist.length) {
+      _playlist.removeAt(index);
+      if (_selectedCueIndex >= _playlist.length) {
+        _selectedCueIndex = math.max(0, _playlist.length - 1);
+      }
+      notifyListeners();
+    }
+  }
+
+  void updateCueMarkerCode(int index, int code) {
+    if (index >= 0 && index < _playlist.length) {
+      _playlist[index].markerCode = code.clamp(1, 32767);
+      notifyListeners();
+    }
+  }
+
+  void clearPlaylist() {
+    _playlist.clear();
+    _selectedCueIndex = 0;
+    notifyListeners();
+  }
+
+  void setPlaylist(
+    List<StimulusCueItem> items, {
+    int? selectedIndex,
+    String? orderMode,
+  }) {
+    _playlist.clear();
+    _playlist.addAll(items);
+    if (selectedIndex != null &&
+        selectedIndex >= 0 &&
+        selectedIndex < _playlist.length) {
+      _selectedCueIndex = selectedIndex;
+    } else {
+      _selectedCueIndex = 0;
+    }
+    if (orderMode != null && const ['sequential', 'random'].contains(orderMode)) {
+      _orderMode = orderMode;
+    }
+    notifyListeners();
+  }
+
+  Future<void> stopPlayback() async {
+    _stopStimulation('Playback stopped');
+    try {
+      unawaited(_audioPlayer.stop());
+    } catch (_) {}
+    _isPlayingAudio = false;
+    notifyListeners();
   }
 
   void setEnabled(bool val) {
@@ -168,6 +295,11 @@ class AuditoryStimService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setMarkerCode(int value) {
+    _markerCode = value.clamp(1, 32767);
+    notifyListeners();
+  }
+
   void configure({
     required bool enabled,
     required SleepStage targetStage,
@@ -185,9 +317,11 @@ class AuditoryStimService extends ChangeNotifier {
     required bool notifyBeep,
     required bool notifyFlash,
     required int notificationIntervalSecs,
+    int? markerCode,
   }) {
     _enabled = enabled;
     _targetStage = targetStage;
+    if (markerCode != null) _markerCode = markerCode.clamp(1, 32767);
     _stimType = const ['beep', 'tone', 'audio'].contains(stimType)
         ? stimType
         : 'tone';
@@ -406,13 +540,19 @@ class AuditoryStimService extends ChangeNotifier {
 
     var elapsedBurstSecs = 0;
     _burstTimer?.cancel();
-    unawaited(_playStimulus('nidra_stimulus'));
+    final cue = currentCueItem;
+    final label = cue != null ? 'nidra_stimulus_${cue.name}' : 'nidra_stimulus';
+    final code = cue?.markerCode;
+    unawaited(_playStimulus(label, code));
     _burstTimer = Timer.periodic(Duration(seconds: _intervalSecs), (timer) {
       if (!_enabled || !_isStimulating) {
         timer.cancel();
         return;
       }
-      unawaited(_playStimulus('nidra_stimulus'));
+      final curCue = currentCueItem;
+      final curLabel = curCue != null ? 'nidra_stimulus_${curCue.name}' : 'nidra_stimulus';
+      final curCode = curCue?.markerCode;
+      unawaited(_playStimulus(curLabel, curCode));
       elapsedBurstSecs += _intervalSecs;
       if (elapsedBurstSecs >= _maxDurationSecs) {
         timer.cancel();
@@ -422,31 +562,84 @@ class AuditoryStimService extends ChangeNotifier {
     });
   }
 
-  Future<void> sendStimulus() => _playStimulus('nidra_stimulus_manual');
+  Future<void> sendStimulus() async {
+    final cue = currentCueItem;
+    if (_stimType == 'audio' && cue != null) {
+      await _playStimulus('nidra_stimulus_${cue.name}', cue.markerCode);
+    } else {
+      await _playStimulus('nidra_stimulus_manual', _markerCode);
+    }
+  }
 
   @Deprecated('Use sendStimulus')
   Future<void> testStimulus() => sendStimulus();
 
-  Future<void> _playStimulus(String markerLabel) async {
+  Future<void> _playStimulus(String markerLabel, [int? markerCode]) async {
+    final effectiveCode = markerCode ?? _markerCode;
     try {
-      final presented = await _playStimulusUnchecked();
-      if (presented) onStimulusPresented?.call(markerLabel);
+      final presented = await _playStimulusUnchecked(markerLabel, effectiveCode);
+      if (presented) onStimulusPresented?.call(markerLabel, effectiveCode);
     } catch (error) {
-      _statusText = 'Could not play stimulus: $error';
+      _statusText = 'Audio error: $error';
       notifyListeners();
+      // Even if sound playback threw an exception, ensure the marker is preserved in EDF and CSV
+      onStimulusPresented?.call(markerLabel, effectiveCode);
     }
   }
 
-  Future<bool> _playStimulusUnchecked() async {
+  Future<bool> _playStimulusUnchecked(String markerLabel, [int? markerCode]) async {
     if (_stimType == 'audio') {
-      if (_audioFilePath.isEmpty || !await File(_audioFilePath).exists()) {
-        _statusText = 'Audio file missing — choose it again on this device';
-        notifyListeners();
-        return false;
+      if (_playlist.isNotEmpty) {
+        final cue = currentCueItem;
+        if (cue != null) {
+          if (!cue.exists) {
+            _statusText = 'Audio file "${cue.name}" missing — falling back to beep';
+            notifyListeners();
+            await alertService.playBeep();
+            onStimulusPresented?.call('nidra_stimulus_${cue.name}', cue.markerCode);
+            _advanceCue();
+            return false;
+          }
+          try {
+            await _audioPlayer.setVolume(_volume);
+            await _audioPlayer.play(DeviceFileSource(cue.filePath));
+            _isPlayingAudio = true;
+            cue.playCount++;
+            onStimulusPresented?.call('nidra_stimulus_${cue.name}', cue.markerCode);
+            _advanceCue();
+            notifyListeners();
+            return false;
+          } catch (e) {
+            debugPrint(
+              '[AuditoryStimService] Playlist playback error ($e), fallback to beep',
+            );
+            await alertService.playBeep();
+            onStimulusPresented?.call('nidra_stimulus_${cue.name}', cue.markerCode);
+            _advanceCue();
+            return false;
+          }
+        }
       }
-      await _audioPlayer.setVolume(_volume);
-      await _audioPlayer.play(DeviceFileSource(_audioFilePath));
-      return true;
+
+      if (_audioFilePath.isEmpty || !await File(_audioFilePath).exists()) {
+        _statusText = 'Audio file missing — falling back to beep';
+        notifyListeners();
+        await alertService.playBeep();
+        return true;
+      }
+      try {
+        await _audioPlayer.setVolume(_volume);
+        await _audioPlayer.play(DeviceFileSource(_audioFilePath));
+        _isPlayingAudio = true;
+        notifyListeners();
+        return true;
+      } catch (e) {
+        debugPrint(
+          '[AuditoryStimService] Audio playback error ($e), fallback to beep',
+        );
+        await alertService.playBeep();
+        return true;
+      }
     }
     if (_stimType == 'tone') {
       final key = '$_toneFrequencyHz:$_toneDurationMs';
@@ -454,9 +647,17 @@ class AuditoryStimService extends ChangeNotifier {
         key,
         () => _wavTone(_toneFrequencyHz, _toneDurationMs),
       );
-      await _audioPlayer.setVolume(_volume);
-      await _audioPlayer.play(BytesSource(bytes));
-      return true;
+      try {
+        await _audioPlayer.setVolume(_volume);
+        await _audioPlayer.play(BytesSource(bytes));
+        return true;
+      } catch (e) {
+        debugPrint(
+          '[AuditoryStimService] Tone playback error ($e), fallback to beep',
+        );
+        await alertService.playBeep();
+        return true;
+      }
     }
     await alertService.playBeep();
     return true;
@@ -501,6 +702,21 @@ class AuditoryStimService extends ChangeNotifier {
       bytes.setInt16(44 + i * 2, value, Endian.little);
     }
     return bytes.buffer.asUint8List();
+  }
+
+  void _advanceCue() {
+    if (_playlist.isEmpty) return;
+    if (_orderMode == 'sequential') {
+      _selectedCueIndex = (_selectedCueIndex + 1) % _playlist.length;
+    } else if (_orderMode == 'random' && _playlist.length > 1) {
+      var next = _random.nextInt(_playlist.length);
+      if (next == _selectedCueIndex) {
+        next = (_selectedCueIndex + 1 + _random.nextInt(_playlist.length - 1)) %
+            _playlist.length;
+      }
+      _selectedCueIndex = next;
+    }
+    notifyListeners();
   }
 
   void _stopStimulation(String nextStatus) {

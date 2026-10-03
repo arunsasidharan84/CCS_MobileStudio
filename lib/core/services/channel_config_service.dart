@@ -74,7 +74,11 @@ class ChannelConfigService extends ChangeNotifier {
   List<bool> get enabled {
     final settings = _settingsService;
     if (settings == null) return List.filled(labels.length, true);
+    final stream = _primaryStream;
     if (_profile != null) {
+      if (stream != null && stream.channelEnabled.length == labels.length) {
+        return List<bool>.of(stream.channelEnabled);
+      }
       final configured = settings.amplifierChannelEnabled[activeProfileKey];
       return configured != null && configured.length == labels.length
           ? configured
@@ -152,6 +156,10 @@ class ChannelConfigService extends ChangeNotifier {
     if (s == null) return;
     if (index < 0 || index >= enabled.length) return;
     s.update((settings) {
+      final stream = _primaryStream;
+      if (stream != null && index < stream.channelEnabled.length) {
+        stream.channelEnabled[index] = value;
+      }
       if (activeProfileKey == 'epidome' || activeProfileKey == 'synthetic') {
         settings.channelEnabled[index] = value;
       } else {
@@ -168,6 +176,11 @@ class ChannelConfigService extends ChangeNotifier {
     if (s == null) return;
     s.update((settings) {
       final count = channelCount ?? _defaultLabels.length;
+      final stream = _primaryStream;
+      if (stream != null) {
+        stream.channelLabels = List.of(_defaultLabels);
+        stream.channelEnabled = List.filled(count, true);
+      }
       if (activeProfileKey == 'epidome' || activeProfileKey == 'synthetic') {
         settings.channelLabels = List.of(kDefaultEpiDomeLabels);
         settings.channelEnabled = List.filled(16, true);

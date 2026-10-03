@@ -3,10 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:package_info_plus/package_info_plus.dart';
+
 import '../../core/services/settings_service.dart';
 import '../../core/services/channel_config_service.dart';
 import '../../core/services/alert_service.dart';
 import '../../core/services/permission_service.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/models/module_type.dart';
 import '../../core/models/device_profile.dart';
 import '../../core/models/manual_marker.dart';
@@ -1263,6 +1266,77 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+          const Divider(color: Colors.white24),
+          const SizedBox(height: 16),
+          const Text(
+            'Application & Updates',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Check for newer versions directly from GitHub Releases and upgrade the app in-place.',
+            style: TextStyle(color: Colors.white54, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.system_update_alt, color: lightTeal, size: 28),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'CCS Mobile Studio',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      FutureBuilder<PackageInfo>(
+                        future: PackageInfo.fromPlatform(),
+                        builder: (context, snapshot) {
+                          final version = snapshot.hasData
+                              ? 'v${snapshot.data!.version}+${snapshot.data!.buildNumber}'
+                              : 'Loading version…';
+                          return Text(
+                            'Installed: $version',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () => showAppUpdateFlow(context),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Check Updates'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: lightTeal,
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

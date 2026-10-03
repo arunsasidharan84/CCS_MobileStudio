@@ -73,8 +73,8 @@ jobs:
              [ -z "$CCS_ANDROID_KEYSTORE_PASSWORD" ] || \
              [ -z "$CCS_ANDROID_KEY_ALIAS" ] || \
              [ -z "$CCS_ANDROID_KEY_PASSWORD" ]; then
-            echo "::warning::Android APK skipped: stable release-signing secrets are not configured"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android APK will build with default signing (release keystore secrets not configured)"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
             echo "CCS_ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/app/release-key.jks" >> "$GITHUB_ENV"

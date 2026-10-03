@@ -4,7 +4,7 @@
 
 ### One workspace for neurophysiology acquisition, stimulation and cognitive experiments
 
-[![Version](https://img.shields.io/badge/version-1.0.6-14b8a6?style=for-the-badge)](https://github.com/arunsasidharan84/CCS_MobileStudio/releases)
+[![Version](https://img.shields.io/badge/version-1.0.7-14b8a6?style=for-the-badge)](https://github.com/arunsasidharan84/CCS_MobileStudio/releases)
 [![Flutter](https://img.shields.io/badge/Flutter-3.41-54c5f8?style=for-the-badge&logo=flutter)](https://flutter.dev)
 [![Native core](https://img.shields.io/badge/native_core-Rust-f97316?style=for-the-badge&logo=rust)](rust/)
 [![Platforms](https://img.shields.io/badge/platforms-Android_%7C_macOS_%7C_Windows-8b5cf6?style=for-the-badge)](#installation-and-updates)
@@ -57,8 +57,13 @@ The shared viewing-and-recording engine used by every other module, also availab
 
 ### 2. Train NIDRA — Sleep Staging & Auditory Stimulation
 * Real-time sleep staging powered by a **TinySleepNet** ONNX model, run natively in Rust (`tract-onnx`) and fed frontal-channel EEG through a background Dart Isolate so scoring never blocks the UI.
+* **Leads-Off & Amplitude Gating:** real-time physiological amplitude validation (`< 2.5 µV` or `> 400 µV`) detects flatline / disconnected electrodes, flagging epochs as `LEADS OFF` with 0% confidence and preventing false REM classifications.
+* **Full Multi-Channel EDF Saving:** records all configured and connected hardware channels with authentic channel labels (e.g. `Fp1`, `Fp2`, `C3`, `C4`), 250 Hz sampling rate, and physical range calibrations across all session segments.
+* **Spurious Noise Suppression:** selectable 20 Hz and 50 Hz notch filters for clean spectral and time-domain analysis.
 * 30-second epoch classification into Wake / N1 / N2 / N3 / REM with per-stage confidence and spectral band powers (Delta, Theta, Alpha, Beta).
 * Interactive hypnogram and live spectral visualization.
+* **Synchronized Event Markers:** stimulus presentations (manual or automated) are recorded synchronously in both the EDF annotation track and the companion session CSV marker log.
+* **ACLS Stimulus Sound Library & Playlist:** load custom audio cues or entire folders (`.wav`, `.mp3`, `.ogg`, `.flac`), toggle sequential or randomized playback, reorder the cue queue on the fly, assign per-cue trigger codes, and instantly cancel playback with the `■ STOP AUDIO PLAYBACK` control.
 * **Auditory Closed-Loop Stimulation (ACLS):** when a target sleep stage (e.g. N2/N3 slow-wave sleep) is stably detected above a confidence threshold, the module triggers periodic acoustic stimulation — supporting slow-wave enhancement and lucid-dreaming stimulation protocols.
 
 ### 3. ANGEL — Cognitive ERP Battery
@@ -96,11 +101,11 @@ The shared viewing-and-recording engine used by every other module, also availab
 * **Global Subject ID / Session Tag** — entered once on the home screen, inherited automatically by every module.
 * **Study Run Sequence** — a reorderable, tappable checklist of the protocol steps for the current session, with per-step launch and a live "recording in progress" banner showing the active module and segment number.
 * **Unified Connection Status Bar** — shows BLE EEG and WiFi fNIRS connection state, active device/stream name, and one-tap disconnect/reconnect, visible from every module.
-* **BLE Streaming Coordinator** — enforces exclusive access to the EEG amplifier so two modules can never contend for the same Bluetooth stream.
+* **BLE Streaming Coordinator & Auto-Recovery** — decoupled BLE discovery surfaces paired/cached amplifiers with 0 ms latency on the first scan, while automatic `clearGattCache()` and retry backoff cleanly resolve Android GATT 133 disconnection loops. Enforces exclusive access to the EEG amplifier so two modules never contend for the same stream.
 * **Session Manager** — tracks session timestamp, subject, active module, and segment index; automatically closes and re-opens EDF segments across disconnect/reconnect events and exports finished recordings to `Downloads/CCS_MobileStudio`.
 * **Standardized File Naming** — every exported file follows `<subject>_<MODULE>_<yyyyMMdd_HHmmss>[_partN].<ext>`, where `MODULE` is one of `NIDRA`, `ANGEL`, `WM`, `EEG`, or `SSS`.
 * **Diagnostics & Troubleshooting Drawer** — per-session tools to test the audio beep/ACLS speaker path, verify the LSL multicast lock (required for WiFi stream discovery on Android 10+), and check the export location, without restarting the app.
-* **In-App Updates** — the update button in the dashboard checks GitHub release metadata over HTTPS, selects the correct platform package, verifies its published SHA-256 digest when available, and starts the OS installation flow. Active recordings must be stopped first.
+* **In-App Upgrades** — check for updates directly from the Home Dashboard toolbar or Settings screen. Supports background update detection with visual badging, SHA-256 integrity verification, and one-tap installation across Android (`.apk`), macOS (in-place bundle update), and Windows. Active recordings must be stopped first.
 
 ---
 
