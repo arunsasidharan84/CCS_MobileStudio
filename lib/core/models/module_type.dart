@@ -5,6 +5,8 @@ enum ModuleType {
   erp,
   wm,
   heartsync,
+  hrd,
+  hep,
   standalone,
   sleepiness;
 
@@ -15,6 +17,8 @@ enum ModuleType {
     ModuleType.erp => 'ERP',
     ModuleType.wm => 'WM',
     ModuleType.heartsync => 'HEARTSYNC',
+    ModuleType.hrd => 'HRD',
+    ModuleType.hep => 'HEP',
     ModuleType.standalone => 'EEG',
     ModuleType.sleepiness => 'SSS',
   };
@@ -26,6 +30,8 @@ enum ModuleType {
     ModuleType.erp => 'Generic ERP',
     ModuleType.wm => 'Adaptive WM',
     ModuleType.heartsync => 'HeartSync',
+    ModuleType.hrd => 'Heart Rate Detection',
+    ModuleType.hep => 'Heartbeat Evoked Potential',
     ModuleType.standalone => 'EEG Recorder',
     ModuleType.sleepiness => 'Sleepiness Scale',
   };

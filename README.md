@@ -107,7 +107,17 @@ The shared viewing-and-recording engine used by every other module, also availab
 * Replay support for validating cardiac detection and stimulus scheduling from offline CSV data.
 * Trial, phase-distribution and average cardiac-cycle exports for post-hoc analysis.
 
-### 7. Sleepiness Scale
+### 7. Heart Rate Detection — Bayesian Psi
+* Interoceptive rate comparison using xAMP-L10 ECG or Orbit PPG, with auditory/visual feedback, catch trials and optional confidence ratings.
+* Native Rust marginal-Psi estimation and cardiac analysis; Flutter visualization and background PDF/SVG reporting.
+* Lightweight procedural audio replaces the source's large rate-file library. See [setup, parity coverage and validation](docs/hrd.md), including the optional NeuroKit2 ECG limitation.
+
+### 8. Heartbeat Evoked Potential (HEP)
+* Live 5-minute resting EEG + ECG collection from a synchronized multi-channel stream.
+* Causal biquad bandpass filtering (0.5–40 Hz EEG, 1–45 Hz ECG), adaptive R-peak detection, artifact gating, and real-time HEP waveform visualization with SEM.
+* Deterministic midpoint-RR pseudotrial control comparison and session JSON export. See [HEP documentation](docs/hep.md) for signal pipeline details and scientific considerations.
+
+### 9. Sleepiness Scale
 * Standalone Stanford Sleepiness Scale (SSS) assessment, intentionally decoupled from ANGEL/WM so it can be administered at any point in a protocol — before a nap, after a task block, at the start or end of a session — without being tied to a specific task module.
 
 ---
@@ -127,7 +137,7 @@ The shared viewing-and-recording engine used by every other module, also availab
 * **Unified Connection Status Bar** — shows BLE EEG and WiFi fNIRS connection state, active device/stream name, and one-tap disconnect/reconnect, visible from every module.
 * **BLE Streaming Coordinator & Auto-Recovery** — decoupled BLE discovery surfaces paired/cached amplifiers with 0 ms latency on the first scan, while automatic `clearGattCache()` and retry backoff cleanly resolve Android GATT 133 disconnection loops. Enforces exclusive access to the EEG amplifier so two modules never contend for the same stream.
 * **Session Manager** — tracks session timestamp, subject, active module, and segment index; automatically closes and re-opens EDF segments across disconnect/reconnect events and exports finished recordings to `Downloads/CCS_MobileStudio`.
-* **Standardized File Naming** — every exported file follows `<subject>_<MODULE>_<yyyyMMdd_HHmmss>[_partN].<ext>`, where `MODULE` is one of `NIDRA`, `ANGEL`, `WM`, `EEG`, or `SSS`.
+* **Standardized File Naming** — every exported file follows `<subject>_<MODULE>_<yyyyMMdd_HHmmss>[_partN].<ext>`, where `MODULE` is one of `NIDRA`, `ANGEL`, `WM`, `EEG`, `HEARTSYNC`, `HRD`, `HEP`, or `SSS`.
 * **Diagnostics & Troubleshooting Drawer** — per-session tools to test the audio beep/ACLS speaker path, verify the LSL multicast lock (required for WiFi stream discovery on Android 10+), and check the export location, without restarting the app.
 * **In-App Upgrades** — check for updates directly from the Home Dashboard toolbar or Settings screen. Supports background update detection with visual badging, SHA-256 integrity verification, and one-tap installation across Android (`.apk`), macOS (in-place bundle update), and Windows.
 

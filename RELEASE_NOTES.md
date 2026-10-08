@@ -1,5 +1,40 @@
 # Release Notes — CCS Mobile Studio
 
+## Version 1.0.8 (Build 9) — October 2026
+
+### Highlights
+- **Heartbeat Evoked Potential (HEP) Module**: Five-minute live resting EEG + ECG collection from a synchronized stream, causal bandpass filtering, online R-peak detection, artifact rejection, real-time HEP waveform visualization with SEM, midpoint-RR pseudotrial control comparison, and session JSON export.
+- **Heart Rate Detection (HRD) Module**: Port of the Bayesian marginal-Psi interoceptive heart-rate discrimination task (`orbit_HRD`). Dual-sensor support for xAMP-L10 (ECG fallback pipeline) and Orbit (custom PPG pipeline). Rust-accelerated numerical backend, procedural audio feedback, visual feedback mode, configurable catch trials, and multi-format reports (CSV, JSON, SVG, PDF).
+- **Parity & Architecture**: Rust native library extension (`rust/src/hrd.rs`) without adding external Rust or Flutter dependencies; background isolate execution keeps UI telemetry fluid at 60 FPS.
+- **In-App Upgrades**: Seamless update checks, background notification badges, and one-tap upgrades across Android, macOS, and Windows.
+
+---
+
+### Detailed Changes
+
+#### 1. Heartbeat Evoked Potential (HEP) Module
+- **Synchronized Dual-Signal Selection**: Enables selecting distinct EEG and ECG channels from any synchronized multi-channel hardware stream (xAMP, secondary devices, or LSL).
+- **Live Preprocessing Pipeline**: Adapts the reference resting HEP pipeline with causal Butterworth biquad filtering (0.5–40 Hz EEG, 1–45 Hz ECG, with a 50 Hz notch). Automatic input voltage scaling handles V, mV, and µV units to standardized µV.
+- **R-Peak Detection & Artifact Gating**: Adaptive 2-second ECG local maximum detector with a 350 ms refractory window. Discontinuity detection handles signal gaps by restarting preprocessing without splicing discontinuous data.
+- **Online Averaging & Control Comparison**: Real-time epoch extraction (−200 to +800 ms), linear detrending, −200 to 0 ms baseline correction, and peak-to-peak artifact rejection (1–150 µV; raw EEG < 250 µV). Computes online running mean and SEM alongside deterministic midpoint-RR pseudotrial controls (real minus control).
+- **Analysis Export**: Exports structured session JSON with real and control waveforms, SEM, R-peak counts, rejection rates, heart rate metrics, and acquisition metadata.
+
+#### 2. Heart Rate Detection (HRD) Module
+- **Bayesian Marginal-Psi Algorithm**: Full Rust implementation of the 102-level stimulus grid (-50.5 to +50.5 BPM), 102x100 alpha/beta parameter space, logistic psychometric function (gamma=0, lapse=0.05), and entropy-minimizing adaptive stimulus selection.
+- **Sensor Modalities**:
+  - **PPG (Orbit)**: Custom bandpass filtering, Savitzky–Golay smoothing, median filtering, peak detection, and RR/IQR outlier rejection.
+  - **ECG (xAMP-L10)**: Standalone SciPy fallback pipeline port (NeuroKit2 optional branch omitted in favor of self-contained native code).
+- **Procedural Audio & Visual Modes**: Procedural 16-bit PCM synthesis replaces the legacy 138 MB audio library with negligible binary footprint (~31–56 KB per ABI). Visual mode provides warning bell and rate-bar display.
+- **Trial Flow & Controls**: Configurable trial count, catch trial allocation (first trial catch, remainder distributed in second half with uniform offsets), response timeout, optional confidence ratings (0–9), and a deterministic 72 BPM demo simulator.
+- **Comprehensive Outputs**: Produces 18-column behavioral CSV, session summary JSON, per-trial sample/diagnostic JSON, vector SVG response plots, and paginated multi-page PDF summary reports.
+
+#### 3. Platform Integration
+- Added HRD and HEP to the default study run sequence on the Home Dashboard and Settings.
+- Registered canonical file naming (`<subject>_HRD_<timestamp>` and `<subject>_HEP_<timestamp>`) and background file recovery.
+- Bumped app version to 1.0.8+9 across Flutter and package manifests.
+
+---
+
 ## Version 1.0.7 (Build 8) — October 2026
 
 ### Highlights

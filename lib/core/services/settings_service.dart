@@ -137,6 +137,8 @@ class SettingsService extends ChangeNotifier {
     ModuleType.erp,
     ModuleType.wm,
     ModuleType.heartsync,
+    ModuleType.hrd,
+    ModuleType.hep,
   ];
 
   // ── Paradigm defaults ─────────────────────────────────────────────────────
@@ -174,6 +176,8 @@ class SettingsService extends ChangeNotifier {
   int wmEncodingDurationMs = 300;
   int wmDelayDurationMs = 1000;
   bool wmRecordEeg = true;
+
+  Map<String, dynamic> hrdSettings = {};
 
   int heartSyncTotalStimuli = 100;
   double heartSyncRareProportion = 0.2;
@@ -303,6 +307,13 @@ class SettingsService extends ChangeNotifier {
       angelAudioInstructionsEnabled =
           (json['angelAudioInstructionsEnabled'] as bool?) ?? true;
       studySequence = _parseStudySequence(json['studySequence']);
+      if (!studySequence.contains(ModuleType.hep)) {
+        studySequence.add(ModuleType.hep);
+      }
+      if (!json.containsKey('hrdSettings') &&
+          !studySequence.contains(ModuleType.hrd)) {
+        studySequence.add(ModuleType.hrd);
+      }
       _loadParadigmDefaults(json);
       lastDeviceId = json['lastDeviceId'] as String?;
       lastDeviceName = json['lastDeviceName'] as String?;
@@ -455,6 +466,7 @@ class SettingsService extends ChangeNotifier {
     'heartSyncReplayFilePath': heartSyncReplayFilePath,
     'heartSyncShowLiveWaveform': heartSyncShowLiveWaveform,
     'heartSyncWaveformSeconds': heartSyncWaveformSeconds,
+    'hrdSettings': hrdSettings,
     'heartSyncChannelName': heartSyncChannelName,
     'heartSyncStimulusMode': heartSyncStimulusMode,
     'heartSyncFrequentToneHz': heartSyncFrequentToneHz,
@@ -666,6 +678,13 @@ class SettingsService extends ChangeNotifier {
         (json['angelAudioInstructionsEnabled'] as bool?) ??
         angelAudioInstructionsEnabled;
     studySequence = _parseStudySequence(json['studySequence']);
+    if (!studySequence.contains(ModuleType.hep)) {
+      studySequence.add(ModuleType.hep);
+    }
+    if (!json.containsKey('hrdSettings') &&
+        !studySequence.contains(ModuleType.hrd)) {
+      studySequence.add(ModuleType.hrd);
+    }
     _loadParadigmDefaults(json);
     lastDeviceId = json['lastDeviceId'] as String?;
     lastDeviceName = json['lastDeviceName'] as String?;
@@ -968,6 +987,7 @@ class SettingsService extends ChangeNotifier {
     heartSyncWaveformSeconds =
         (json['heartSyncWaveformSeconds'] as num?)?.toDouble() ??
         heartSyncWaveformSeconds;
+    hrdSettings = Map<String, dynamic>.from(json['hrdSettings'] as Map? ?? {});
     heartSyncChannelName =
         (json['heartSyncChannelName'] as String?) ?? heartSyncChannelName;
     heartSyncStimulusMode =
@@ -1172,6 +1192,8 @@ class SettingsService extends ChangeNotifier {
             ModuleType.erp,
             ModuleType.wm,
             ModuleType.heartsync,
+            ModuleType.hrd,
+            ModuleType.hep,
           ]
         : parsed;
   }
@@ -1185,6 +1207,8 @@ class SettingsService extends ChangeNotifier {
             ModuleType.erp,
             ModuleType.wm,
             ModuleType.heartsync,
+            ModuleType.hrd,
+            ModuleType.hep,
           ]
         : List<ModuleType>.from(modules);
     notifyListeners();

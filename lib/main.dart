@@ -21,6 +21,8 @@ import 'modules/nidra/nidra_screen.dart';
 import 'modules/angel/angel_screen.dart';
 import 'modules/adaptive_wm/wm_screen.dart';
 import 'modules/heartsync/heartsync_screen.dart';
+import 'modules/hrd/hrd_screen.dart';
+import 'modules/hep/hep_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -140,6 +142,8 @@ class CcsMobileStudioApp extends StatelessWidget {
             '/angel': (_) => const AngelScreen(),
             '/wm': (_) => const WmScreen(),
             '/heartsync': (_) => const HeartSyncScreen(),
+            '/hrd': (_) => const HrdScreen(),
+            '/hep': (_) => const HepScreen(),
           },
         ),
       ),

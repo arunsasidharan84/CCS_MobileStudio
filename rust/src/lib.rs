@@ -1,3 +1,4 @@
+mod hrd;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};

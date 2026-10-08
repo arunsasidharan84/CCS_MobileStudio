@@ -1,7 +1,7 @@
 name: ccs_mobile_studio
 description: "CCS Mobile Studio - Unified EEG, ERP, sleep and neuro-cognitive research platform"
 publish_to: 'none'
-version: 1.0.7+8
+version: 1.0.8+9
 
 environment:
   sdk: ^3.11.5
@@ -61,6 +61,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/hrd/bell.wav
     # TinySleepNet ONNX models (for NIDRA module)
     - assets/models/tinysleepnet-supratak/config.json
     - assets/models/tinysleepnet-supratak/metrics.json

@@ -21,6 +21,8 @@ import '../angel/angel_screen.dart';
 import '../adaptive_wm/wm_screen.dart';
 import '../sleepiness/sleepiness_screen.dart';
 import '../heartsync/heartsync_screen.dart';
+import '../hrd/hrd_screen.dart';
+import '../hep/hep_screen.dart';
 import '../generic_erp/generic_erp_screen.dart';
 
 /// Main unified dashboard for CCS Mobile Studio.
@@ -521,6 +523,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.erp => const Color(0xFF22D3EE),
       ModuleType.wm => const Color(0xFFEC4899),
       ModuleType.heartsync => const Color(0xFFF43F5E),
+      ModuleType.hrd => const Color(0xFFFB7185),
+      ModuleType.hep => const Color(0xFF22D3EE),
       ModuleType.sleepiness => const Color(0xFF10B981),
     };
     final icon = switch (module) {
@@ -530,6 +534,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.erp => Icons.multiline_chart,
       ModuleType.wm => Icons.memory,
       ModuleType.heartsync => Icons.favorite,
+      ModuleType.hrd => Icons.favorite_border,
+      ModuleType.hep => Icons.monitor_heart_outlined,
       ModuleType.sleepiness => Icons.assignment_turned_in,
     };
     final subtitle = switch (module) {
@@ -539,6 +545,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.erp => 'Flexible oddball, N400, P50, MMN and N170 tasks',
       ModuleType.wm => 'Adaptive working memory task',
       ModuleType.heartsync => 'Heartbeat-locked cardiac oddball task',
+      ModuleType.hrd => 'Bayesian Psi interoceptive heart-rate task',
+      ModuleType.hep => '5-minute live EEG + ECG heartbeat-locked analysis',
       ModuleType.sleepiness => 'Stanford Sleepiness Scale assessment & logs',
     };
 
@@ -618,6 +626,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.erp => const GenericErpScreen(),
       ModuleType.wm => const WmScreen(),
       ModuleType.heartsync => const HeartSyncScreen(),
+      ModuleType.hrd => const HrdScreen(),
+      ModuleType.hep => const HepScreen(),
       ModuleType.sleepiness => const SleepinessScreen(),
     };
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
