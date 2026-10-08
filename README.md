@@ -38,7 +38,8 @@ Pre-built standalone application packages are published automatically through Gi
 | **Windows** | 64-bit Standalone (.zip) | [Download Latest Windows ZIP](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest) |
 
 > 📦 **All Releases & Notes:** View all version packages, assets, and SHA-256 checksums on the **[GitHub Releases Page](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest)**.  
-> 🔄 **In-App Upgrades:** CCS Mobile Studio features automatic background update checks with SHA-256 verification via the **Update** icon in the dashboard toolbar.
+> 🔄 **In-App Upgrades:** CCS Mobile Studio features automatic background update checks with SHA-256 verification via the **Update** icon in the dashboard toolbar.  
+> 🍏 **macOS 1-Click Install:** Downloaded `.zip` archives can be installed directly to `/Applications` without Gatekeeper prompts using `./tools/install_mac.sh`, which automatically clears quarantine flags and signs the app with your local Apple Developer credentials. Future in-app updates perform this automatically in the background.
 
 <p align="center">
   <img src="docs/images/dashboard.png" width="920" alt="CCS Mobile Studio Unified Study Dashboard">

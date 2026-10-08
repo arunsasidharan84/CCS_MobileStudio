@@ -6,7 +6,7 @@
 - **Heartbeat Evoked Potential (HEP) Module**: Five-minute live resting EEG + ECG collection from a synchronized stream, causal bandpass filtering, online R-peak detection, artifact rejection, real-time HEP waveform visualization with SEM, midpoint-RR pseudotrial control comparison, and session JSON export.
 - **Heart Rate Detection (HRD) Module**: Port of the Bayesian marginal-Psi interoceptive heart-rate discrimination task (`orbit_HRD`). Dual-sensor support for xAMP-L10 (ECG fallback pipeline) and Orbit (custom PPG pipeline). Rust-accelerated numerical backend, procedural audio feedback, visual feedback mode, configurable catch trials, and multi-format reports (CSV, JSON, SVG, PDF).
 - **Parity & Architecture**: Rust native library extension (`rust/src/hrd.rs`) without adding external Rust or Flutter dependencies; background isolate execution keeps UI telemetry fluid at 60 FPS.
-- **In-App Upgrades**: Seamless update checks, background notification badges, and one-tap upgrades across Android, macOS, and Windows.
+- **In-App Upgrades & macOS Gatekeeper Auto-Recovery**: Seamless update checks, background notification badges, and one-tap upgrades across Android, macOS, and Windows. On macOS, updates and local installations automatically clear Gatekeeper quarantine and re-sign with detected Apple Developer certificates.
 
 ---
 
@@ -28,9 +28,12 @@
 - **Trial Flow & Controls**: Configurable trial count, catch trial allocation (first trial catch, remainder distributed in second half with uniform offsets), response timeout, optional confidence ratings (0–9), and a deterministic 72 BPM demo simulator.
 - **Comprehensive Outputs**: Produces 18-column behavioral CSV, session summary JSON, per-trial sample/diagnostic JSON, vector SVG response plots, and paginated multi-page PDF summary reports.
 
-#### 3. Platform Integration
+#### 3. Platform Integration & macOS Installation
 - Added HRD and HEP to the default study run sequence on the Home Dashboard and Settings.
 - Registered canonical file naming (`<subject>_HRD_<timestamp>` and `<subject>_HEP_<timestamp>`) and background file recovery.
+- **macOS Gatekeeper & In-App Updater Auto-Recovery**: The in-app updater automatically strips `com.apple.quarantine` from downloaded bundles and signs them in-place with local Apple Developer certificates (`Apple Development` / `Developer ID Application`).
+- **1-Click macOS Installer**: Added `tools/install_mac.sh` to install to `/Applications`, clear Gatekeeper quarantine, and re-sign seamlessly.
+- **Modern Xcode 16 / macOS 12+ Support**: Updated macOS deployment target to 12.0 in project configurations and CocoaPods.
 - Bumped app version to 1.0.8+9 across Flutter and package manifests.
 
 ---

@@ -277,11 +277,8 @@ class AppUpdateService {
   }
 
   static Future<String> _installMacOsZip(File archive) async {
-    final currentApp = _currentAppBundle();
-    if (currentApp == null) {
-      await Process.run('open', ['-R', archive.path]);
-      return 'Archive downloaded and revealed in Finder. Debug builds must be replaced manually.';
-    }
+    final targetApp =
+        _currentAppBundle() ?? '/Applications/ccs_mobile_studio.app';
     final temp = await Directory.systemTemp.createTemp('ccs_mobile_update_');
     final extract = await Process.run('ditto', [
       '-x',
@@ -314,18 +311,24 @@ ARCHIVE="$5"
 BACKUP="${TARGET}.previous"
 while kill -0 "$PID" 2>/dev/null; do sleep 0.25; done
 rm -rf "$BACKUP"
-if ! mv "$TARGET" "$BACKUP"; then
-  open -R "$ARCHIVE"
-  exit 1
+if [ -d "$TARGET" ]; then
+  if ! mv "$TARGET" "$BACKUP"; then
+    open -R "$ARCHIVE"
+    exit 1
+  fi
 fi
 if cp -R "$SOURCE" "$TARGET"; then
-  xattr -rd com.apple.quarantine "$TARGET" 2>/dev/null || true
+  xattr -cr "$TARGET" 2>/dev/null || true
+  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -E "Developer ID Application|Apple Development" | head -1 | awk -F '"' '{print $2}')
+  if [ -n "$IDENTITY" ]; then
+    codesign --force --deep --sign "$IDENTITY" "$TARGET" 2>/dev/null || true
+  fi
   open "$TARGET"
   rm -rf "$BACKUP" "$WORK"
   rm -f "$ARCHIVE"
 else
   rm -rf "$TARGET"
-  mv "$BACKUP" "$TARGET" 2>/dev/null || true
+  [ -d "$BACKUP" ] && mv "$BACKUP" "$TARGET" 2>/dev/null || true
   open -R "$SOURCE"
 fi
 ''');
@@ -333,7 +336,7 @@ fi
     await Process.start('/bin/bash', [
       helper.path,
       '$pid',
-      currentApp,
+      targetApp,
       apps.first.path,
       temp.path,
       archive.path,
@@ -341,7 +344,7 @@ fi
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 700), () => exit(0)),
     );
-    return 'Update prepared. CCS Mobile Studio will restart automatically.';
+    return 'Update prepared. CCS Mobile Studio will install and restart automatically.';
   }
 
   static Future<String> _installWindowsZip(File archive) async {
