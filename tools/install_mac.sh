@@ -7,21 +7,21 @@ set -euo pipefail
 # and launches the application cleanly with zero Gatekeeper warnings.
 # -----------------------------------------------------------------------------
 
-TARGET="/Applications/ccs_mobile_studio.app"
+TARGET="/Applications/CCS Mobile Studio.app"
 SOURCE_APP=""
 
 # Locate source application
 if [ $# -ge 1 ] && [ -d "$1" ]; then
   SOURCE_APP="$1"
-elif [ -d "build/macos/Build/Products/Release/ccs_mobile_studio.app" ]; then
-  SOURCE_APP="build/macos/Build/Products/Release/ccs_mobile_studio.app"
-elif [ -d "$HOME/Downloads/ccs_mobile_studio.app" ]; then
-  SOURCE_APP="$HOME/Downloads/ccs_mobile_studio.app"
+elif [ -d "build/macos/Build/Products/Release/CCS Mobile Studio.app" ]; then
+  SOURCE_APP="build/macos/Build/Products/Release/CCS Mobile Studio.app"
+elif [ -d "$HOME/Downloads/CCS Mobile Studio.app" ]; then
+  SOURCE_APP="$HOME/Downloads/CCS Mobile Studio.app"
 fi
 
 if [ -z "$SOURCE_APP" ] || [ ! -d "$SOURCE_APP" ]; then
-  echo "❌ Source ccs_mobile_studio.app not found."
-  echo "Usage: ./tools/install_mac.sh [path/to/ccs_mobile_studio.app]"
+  echo "❌ Source CCS Mobile Studio.app not found."
+  echo "Usage: ./tools/install_mac.sh [path/to/CCS Mobile Studio.app]"
   exit 1
 fi
 

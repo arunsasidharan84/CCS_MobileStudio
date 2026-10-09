@@ -278,7 +278,7 @@ class AppUpdateService {
 
   static Future<String> _installMacOsZip(File archive) async {
     final targetApp =
-        _currentAppBundle() ?? '/Applications/ccs_mobile_studio.app';
+        _currentAppBundle() ?? '/Applications/CCS Mobile Studio.app';
     final temp = await Directory.systemTemp.createTemp('ccs_mobile_update_');
     final extract = await Process.run('ditto', [
       '-x',

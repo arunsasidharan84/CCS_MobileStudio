@@ -17,6 +17,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/arunsasidharan84/CCS_MobileStudio?style=for-the-badge&color=2563eb&label=RELEASE"></a>
+  <a href="https://github.com/arunsasidharan84/CCS_MobileStudio/actions/workflows/desktop-release.yml"><img alt="Desktop build" src="https://img.shields.io/github/actions/workflow/status/arunsasidharan84/CCS_MobileStudio/desktop-release.yml?style=for-the-badge&label=BUILD"></a>
+  <a href="https://github.com/arunsasidharan84/CCS_MobileStudio/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/arunsasidharan84/CCS_MobileStudio/total?style=for-the-badge&color=16a34a&label=DOWNLOADS"></a>
+</p>
+
+<p align="center">
+  <b>Current version: 1.0.8</b> ·
+  <a href="RELEASE_NOTES.md">Detailed changelog</a> ·
+  <a href="https://github.com/arunsasidharan84/CCS_MobileStudio/issues">Report a problem</a>
+</p>
+
+<p align="center">
   <a href="#-quick-download"><b>📥 Download App</b></a> &nbsp;•&nbsp;
   <a href="#about"><b>About</b></a> &nbsp;•&nbsp;
   <a href="#-research-modules"><b>Research Modules</b></a> &nbsp;•&nbsp;
@@ -31,15 +43,32 @@
 
 Pre-built standalone application packages are published automatically through GitHub Releases:
 
-| Platform | Format / Package | Direct Download Link |
-| :--- | :--- | :--- |
-| **Android** | APK (Phones & Tablets) | [Download Latest Android APK](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest) |
-| **macOS** | Universal Application (.zip) | [Download Latest macOS ZIP](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest) |
-| **Windows** | 64-bit Standalone (.zip) | [Download Latest Windows ZIP](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest) |
+| Platform | Package Type | Extracted App / Binary | Direct Download Link |
+| :--- | :--- | :--- | :--- |
+| **macOS** | Universal desktop application (.zip) | **`CCS Mobile Studio.app`** | [CCSMobileStudio-macos.zip](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest/download/CCSMobileStudio-macos.zip) |
+| **Windows** | 64-bit desktop package (.zip) | `CCSMobileStudio.exe` | [CCSMobileStudio-Windows.zip](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest/download/CCSMobileStudio-Windows.zip) |
+| **Android** | Mobile & Tablet APK | `CCSMobileStudio-Android.apk` | [CCSMobileStudio-Android.apk](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest/download/CCSMobileStudio-Android.apk) |
 
-> 📦 **All Releases & Notes:** View all version packages, assets, and SHA-256 checksums on the **[GitHub Releases Page](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest)**.  
-> 🔄 **In-App Upgrades:** CCS Mobile Studio features automatic background update checks with SHA-256 verification via the **Update** icon in the dashboard toolbar.  
-> 🍏 **macOS 1-Click Install:** Downloaded `.zip` archives can be installed directly to `/Applications` without Gatekeeper prompts using `./tools/install_mac.sh`, which automatically clears quarantine flags and signs the app with your local Apple Developer credentials. Future in-app updates perform this automatically in the background.
+> 📦 **All Releases & Assets:** View all version packages, assets, and SHA-256 checksums on the **[GitHub Releases Page](https://github.com/arunsasidharan84/CCS_MobileStudio/releases/latest)**.  
+> 🔄 **In-App Upgrades:** CCS Mobile Studio features automatic background update checks with SHA-256 verification via the **Update** icon in the dashboard toolbar.
+
+#### 🍏 First-Time Launch for macOS Users (Gatekeeper Setup)
+
+When extracting `CCSMobileStudio-macos.zip`, macOS extracts **`CCS Mobile Studio.app`** into your `~/Downloads` folder. Because development builds are ad-hoc signed, macOS Gatekeeper blocks opening them by default.
+
+To enable the app, run the following in **Terminal**:
+
+```sh
+# 1. Clear Gatekeeper quarantine on the downloaded app:
+xattr -rd com.apple.quarantine ~/Downloads/CCS\ Mobile\ Studio.app
+
+# 2. Move to Applications folder:
+mv ~/Downloads/CCS\ Mobile\ Studio.app /Applications/
+```
+
+> **Tip (Finder alternative):** In Finder, **Right-click (or Control-click)** `CCS Mobile Studio.app` → select **Open** → click **Open** on the security confirmation prompt. You only need to do this once.
+>
+> **Automated 1-Click Install:** Downloaded `.zip` archives can also be installed directly to `/Applications` without Gatekeeper prompts using `./tools/install_mac.sh`. Future in-app updates perform this automatically in the background.
 
 <p align="center">
   <img src="docs/images/dashboard.png" width="920" alt="CCS Mobile Studio Unified Study Dashboard">
