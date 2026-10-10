@@ -1,6 +1,6 @@
 # Heartbeat Evoked Potential module
 
-Open Heartbeat Evoked Potential from the study sequence. Connect a voltage stream containing synchronized EEG and ECG, select distinct channels, and start a five-minute resting collection. Supports acquisition, secondary devices and LSL through their existing sample streams. Separate independently clocked EEG and ECG streams are intentionally unsupported. Set channel labels/types and the acquisition reference before collection; no average reference is applied to a single EEG channel.
+Open Heartbeat Evoked Potential from the study sequence. Connect a voltage stream containing synchronized EEG and ECG, select distinct channels, and start a five-minute resting collection. Supports acquisition, secondary devices and LSL through their existing sample streams. Separate independently clocked EEG and ECG streams are intentionally unsupported. Orbit has a dedicated EEG + PPG mode described below. Set channel labels/types and the acquisition reference before collection; no average reference is applied to a single EEG channel.
 
 The Dart implementation adapts `HeartEvokedPotentials-main/resting_hep/hep_resting_pipeline.py` (MIT; license in `lib/modules/hep/LICENSE`). EEG uses causal Butterworth biquads at 0.5–40 Hz with a 50 Hz notch; ECG uses 1–45 Hz. The absolute ECG local maximum detector adapts over two seconds and has a 350 ms refractory interval. Input units V/mV/µV are converted to µV. Requires 125–4000 Hz. Three seconds of filter warmup precede usable epochs. Acquisition timestamps anchor beats; duplicate timestamps are ignored. Gaps exceeding three sample intervals clear pending epochs and restart preprocessing without joining discontinuous data.
 
@@ -11,3 +11,13 @@ Midpoint-RR pseudotrials provide an exploratory control average; exported correc
 Stop or let the timer finish, then export JSON through the app's configured data output directory. JSON includes waveforms, SEM, controls, channel/source identity, acquisition sample rate, counts, timestamps and processing limitations. This module exports analysis only; use the existing recorder for raw physiological recordings. Hardware timing and scientific validity need comparison with offline analysis on representative recordings before research use.
 
 Validation: `flutter test test/hep_test.dart` checks synthetic beat tracking, accepted HEP/control accumulation, zero baseline, discontinuity handling and flat EEG rejection.
+
+## Orbit EEG + PPG
+
+Select **Orbit EEG + PPG**, connect Orbit and enable its PPG stream in Settings, then start. The module processes both physical frontal EEG channels, AF7 and AF8, independently at 250 Hz, with separate artifact rejection, waveforms, SEM and pseudotrial controls. It selects Orbit mode automatically when Orbit is already connected. ECG mode remains available.
+
+Cardiac events come from the same device profile's native 62.5 Hz PPG stream in arbitrary units. The third EEG display channel is ignored: it contains interpolated PPG rather than new pulse samples. The existing HeartSync causal PPG detector uses 0.5–8 Hz filtering, an adaptive robust threshold, positive local maxima and a 450 ms refractory interval. Pulse timestamps map to the nearest EEG sample; EEG and PPG can arrive in separate batches. Duplicate samples are ignored. EEG/PPG gaps reset pending epochs and the detector, followed by renewed warmup. Switching hardware or changing stream rates requires restarting.
+
+Plots and JSON identify the event reference as a PPG pulse peak. No pulse transit time correction is applied, so these are pulse-locked EEG estimates and cannot be equated directly with ECG R-locked HEP. PPG has 16 ms native sample spacing; both clocks are reconstructed by acquisition and need hardware timing validation. Causal detector/filter delays remain. Export includes both channel results and identifies native PPG rate, source, processing and limitations. The two channels are not averaged together, preventing a bad frontal channel from contaminating a clean one.
+
+`flutter test test/hep_test.dart test/orbit_hep_test.dart` covers ECG regression, batched native PPG event mapping, independent flat-channel rejection, source isolation, duplicate samples, flat PPG and gap recovery.

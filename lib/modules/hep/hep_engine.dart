@@ -4,13 +4,14 @@ import '../../core/eeg/display_filter.dart';
 /// Streaming single-channel adaptation of HeartEvokedPotentials resting pipeline.
 /// Input EEG and ECG are synchronized samples in microvolts.
 class HepEngine {
-  HepEngine(this.sampleRate, {this.notchHz = 50}) {
+  HepEngine(this.sampleRate, {this.notchHz = 50, this.externalEvents = false}) {
     if (!sampleRate.isFinite || sampleRate < 125 || sampleRate > 4000) {
       throw ArgumentError('HEP requires a sample rate of 125–4000 Hz.');
     }
     _resetFilters();
   }
   final double sampleRate, notchHz;
+  final bool externalEvents;
   late BiquadFilter hp, lp, ecgHp, ecgLp;
   BiquadFilter? notch;
   final List<double> _eeg = [], _raw = [], _ecg = [];
@@ -66,6 +67,44 @@ class HepEngine {
     _resetFilters();
   }
 
+  /// Clear pending epochs when the external cardiac stream loses continuity.
+  void cardiacGap() {
+    gaps++;
+    _breakContinuity();
+    quality = 'PPG gap: warming up';
+  }
+
+  /// Timestamp is the native pulse fiducial, never a repeated display value.
+  void addCardiacEvent(DateTime timestamp) {
+    if (!externalEvents || _lastTime == null) return;
+    final at =
+        _index +
+        (timestamp.difference(_lastTime!).inMicroseconds * sampleRate / 1000000)
+            .round();
+    if (at - _base < sampleRate * 3 || at - _lastBeat <= sampleRate * .35) {
+      return;
+    }
+    if (at - pre < _base || at > _index + sampleRate * .1) return;
+    beats++;
+    final rr = (at - _lastBeat) / sampleRate;
+    if (_lastBeat >= _base && rr >= .4 && rr <= 1.5) {
+      bpm = 60 / rr;
+      _controls.add(_lastBeat + ((at - _lastBeat) / 2).round());
+    }
+    _lastBeat = at;
+    _pending.add(at);
+    _processReady();
+  }
+
+  void _processReady() {
+    while (_pending.isNotEmpty && _index >= _pending.first + post) {
+      _accumulate(_pending.removeAt(0));
+    }
+    while (_controls.isNotEmpty && _index >= _controls.first + post) {
+      _accumulate(_controls.removeAt(0), control: true);
+    }
+  }
+
   void add(double eegUv, double ecgUv, DateTime timestamp) {
     final last = _lastTime;
     if (last != null &&
@@ -103,7 +142,9 @@ class HepEngine {
     _levels.add(cardiac.abs());
     if (_levels.length > (sampleRate * 2).round()) _levels.removeAt(0);
     // Absolute local maximum handles either ECG polarity; two-second adaptation.
-    if (_levels.length >= (sampleRate * 2).round() && _ecg.length >= 3) {
+    if (!externalEvents &&
+        _levels.length >= (sampleRate * 2).round() &&
+        _ecg.length >= 3) {
       final sorted = _levels.toList()..sort();
       final threshold = max(20.0, sorted[(sorted.length * .9).floor()] * 1.5);
       final n = _ecg.length;
@@ -128,12 +169,7 @@ class HepEngine {
         if (at - _base >= sampleRate * 3) _pending.add(at);
       }
     }
-    while (_pending.isNotEmpty && _index >= _pending.first + post) {
-      _accumulate(_pending.removeAt(0));
-    }
-    while (_controls.isNotEmpty && _index >= _controls.first + post) {
-      _accumulate(_controls.removeAt(0), control: true);
-    }
+    _processReady();
     final keep = (sampleRate * 4).round();
     if (_eeg.length > keep) {
       _eeg.removeAt(0);
@@ -144,7 +180,9 @@ class HepEngine {
     if (_index - _lastBeat > sampleRate * 3 &&
         _levels.length >= sampleRate * 2) {
       bpm = 0;
-      quality = 'No reliable ECG R-peaks';
+      quality = externalEvents
+          ? 'No reliable PPG pulse peaks'
+          : 'No reliable ECG R-peaks';
     }
   }
 
@@ -199,5 +237,6 @@ class HepEngine {
   void finish() {
     rejected += _pending.length;
     _pending.clear();
+    _controls.clear();
   }
 }

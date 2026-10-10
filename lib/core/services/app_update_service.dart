@@ -8,6 +8,8 @@ import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:provider/provider.dart';
+import 'session_manager.dart';
 
 enum UpdatePlatform { android, macos, windows, linux, unsupported }
 
@@ -148,8 +150,13 @@ class AppUpdateService {
         )
         ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
         ..set('X-GitHub-Api-Version', '2022-11-28');
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
+      final response = await request.close().timeout(
+        const Duration(seconds: 20),
+      );
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException(
           'GitHub returned HTTP ${response.statusCode}',
@@ -416,6 +423,14 @@ try {
 }
 
 Future<void> showAppUpdateFlow(BuildContext context) async {
+  if (context.read<SessionManager>().isRecording) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Stop the active recording before updating the app.'),
+      ),
+    );
+    return;
+  }
   showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -480,6 +495,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
   bool downloading = false;
   double progress = 0;
   String status = '';
+  File? downloadedPackage;
 
   Future<void> _downloadAndInstall() async {
     final asset = widget.info.asset;
@@ -489,23 +505,31 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
       status = 'Starting download…';
     });
     try {
-      final file = await AppUpdateService.download(asset, (
-        value,
-        received,
-        total,
-      ) {
-        if (!mounted) return;
-        setState(() {
-          progress = value;
-          final receivedMb = (received / 1048576).toStringAsFixed(1);
-          final totalMb = total > 0
-              ? (total / 1048576).toStringAsFixed(1)
-              : '?';
-          status = 'Downloading $receivedMb / $totalMb MB';
-        });
-      });
+      final file =
+          downloadedPackage ??
+          await AppUpdateService.download(asset, (value, received, total) {
+            if (!mounted) return;
+            setState(() {
+              progress = value;
+              final receivedMb = (received / 1048576).toStringAsFixed(1);
+              final totalMb = total > 0
+                  ? (total / 1048576).toStringAsFixed(1)
+                  : '?';
+              status = 'Downloading $receivedMb / $totalMb MB';
+            });
+          });
       if (!mounted) return;
-      setState(() => status = 'Download verified. Preparing installation…');
+      downloadedPackage = file;
+      setState(
+        () => status = asset.sha256 == null
+            ? 'Download complete. Preparing installation…'
+            : 'Checksum verified. Preparing installation…',
+      );
+      if (context.read<SessionManager>().isRecording) {
+        throw StateError(
+          'A recording started during download. Stop it before installing the update.',
+        );
+      }
       final message = await AppUpdateService.install(file);
       if (mounted) setState(() => status = message);
     } catch (error) {
@@ -517,6 +541,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final recording = context.watch<SessionManager>().isRecording;
     final info = widget.info;
     return AlertDialog(
       backgroundColor: const Color(0xFF1E293B),
@@ -565,6 +590,14 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                 ),
               ),
             ),
+            if (recording)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  'Installation paused while a recording is active.',
+                  style: TextStyle(color: Colors.amber),
+                ),
+              ),
             if (downloading || status.isNotEmpty) ...[
               const SizedBox(height: 16),
               if (downloading)
@@ -588,9 +621,15 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
         ),
         if (info.hasUpdate && info.asset != null)
           FilledButton.icon(
-            onPressed: downloading ? null : _downloadAndInstall,
+            onPressed: downloading || recording ? null : _downloadAndInstall,
             icon: const Icon(Icons.download),
-            label: Text(downloading ? 'Downloading…' : 'Download and update'),
+            label: Text(
+              downloading
+                  ? 'Preparing update…'
+                  : downloadedPackage != null
+                  ? 'Install and restart'
+                  : 'Download and update',
+            ),
           ),
       ],
     );

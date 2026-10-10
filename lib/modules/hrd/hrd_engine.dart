@@ -59,20 +59,24 @@ class HrdEngine extends ChangeNotifier {
       estimate = List.filled(4, double.nan);
   double sampleRate = 0, hr = double.nan, delta = 0, presented = 0;
   String? lockedSource;
+  String? processingMethod;
   DateTime? firstSample, lastSample;
-  Timer? deadline;
+  Timer? deadline, progressTicker;
   final reactionClock = Stopwatch();
   bool disposed = false, ownsRecording = false, saveFailed = false;
   Future<void>? activeAnalysis;
   int generation = 0;
   int? response, rating;
-  double? rt;
+  double? rt, sliderPosition;
   double progress = 0;
   String? csvPath;
   Future<void>? pendingWrite, pendingExport;
   int get trial => rows.length + 1;
   void _set(HrdPhase value, String text) {
     if (disposed) return;
+    if (value != HrdPhase.collecting) {
+      progressTicker?.cancel();
+    }
     phase = value;
     message = text;
     notifyListeners();
@@ -143,6 +147,7 @@ class HrdEngine extends ChangeNotifier {
     response = null;
     rating = null;
     rt = null;
+    sliderPosition = null;
     _set(HrdPhase.fixation, '+');
     deadline = Timer(const Duration(seconds: 1), () {
       _set(
@@ -152,6 +157,16 @@ class HrdEngine extends ChangeNotifier {
             : 'Focus on your heartbeat',
       );
       if (config.simulation) {
+        final clock = Stopwatch()..start();
+        progressTicker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+          if (disposed || phase != HrdPhase.collecting) {
+            progressTicker?.cancel();
+            return;
+          }
+          progress = (clock.elapsedMicroseconds / (config.epochSeconds * 1e6))
+              .clamp(0.0, 1.0);
+          notifyListeners();
+        });
         deadline = Timer(Duration(seconds: config.epochSeconds), () {
           activeAnalysis = _simulate();
           unawaited(activeAnalysis!);
@@ -198,6 +213,7 @@ class HrdEngine extends ChangeNotifier {
         'sampleRate': sampleRate,
         'seconds': config.epochSeconds.toDouble(),
         'ecg': config.ecg,
+        'ecgMethod': config.ecgMethod.name,
       });
       if (disposed || token != generation) return;
       samples.addAll(data['samples'] as List<double>);
@@ -235,10 +251,12 @@ class HrdEngine extends ChangeNotifier {
         'samples': values,
         'sampleRate': sampleRate,
         'ecg': config.ecg,
+        'ecgMethod': config.ecgMethod.name,
         if (catches[rows.length])
           'catchDelta': (random.nextInt(9) * 10 - 40).toDouble(),
       });
       if (disposed || token != generation) return;
+      processingMethod = result['processingMethod'] as String;
       final stats = result['stats'] as List<double>;
       hr = stats[0];
       if (!hr.isFinite || hr <= 0) {
@@ -264,6 +282,7 @@ class HrdEngine extends ChangeNotifier {
         'peaks': peakMask,
         'stats': stats,
         'rates': result['rates'],
+        'processingMethod': processingMethod,
       };
       final snapshotPath = csvPath!.replaceFirst(
         '.csv',
@@ -320,11 +339,32 @@ class HrdEngine extends ChangeNotifier {
     }
   }
 
-  Future<void> answer(int? value) async {
+  Future<void> answer(
+    int? value, {
+    int? combinedConfidence,
+    double? position,
+  }) async {
+    if (value != null && value != 0 && value != 1) {
+      throw ArgumentError('Invalid response');
+    }
+    if (combinedConfidence != null &&
+        (combinedConfidence < 1 || combinedConfidence > 9)) {
+      throw ArgumentError('Invalid slider confidence');
+    }
+    if (config.responseMode == HrdResponseMode.combinedSlider &&
+        value != null) {
+      final selected = HrdSliderAnswer(position ?? 0);
+      if (selected.response != value ||
+          selected.confidence != combinedConfidence) {
+        throw ArgumentError('Slider response and confidence disagree');
+      }
+    }
     if (phase != HrdPhase.response) return;
     deadline?.cancel();
     reactionClock.stop();
     response = value;
+    rating = value == null ? null : combinedConfidence;
+    sliderPosition = value == null ? null : position;
     rt = value == null ? null : reactionClock.elapsedMicroseconds / 1e6;
     _set(HrdPhase.processing, 'Saving response');
     await player.stop();
@@ -333,7 +373,9 @@ class HrdEngine extends ChangeNotifier {
       value == null ? 'HRD timeout' : 'HRD response $value',
       value == null ? 713 : 711 + value,
     );
-    if (config.confidence && value != null) {
+    if (config.responseMode == HrdResponseMode.buttons &&
+        config.confidence &&
+        value != null) {
       _set(HrdPhase.rating, 'How confident are you? 0–9');
       deadline = Timer(
         const Duration(seconds: 15),
@@ -390,6 +432,10 @@ class HrdEngine extends ChangeNotifier {
         'ResponseTime': rt,
         'PsiThreshold': estimate[0],
         'PsiSlope': estimate[3],
+        'ResponseMode': config.responseMode.name,
+        'SliderPosition': sliderPosition,
+        'DeliveredDeltaRate': presented - hr,
+        'CardiacProcessing': processingMethod,
       });
       pendingWrite = _write();
       await pendingWrite;
@@ -414,9 +460,16 @@ class HrdEngine extends ChangeNotifier {
     Object? safe(Object? v) => v is double && !v.isFinite ? null : v;
     String cell(Object? v) =>
         '"${(safe(v)?.toString() ?? '').replaceAll('"', '""')}"';
+    final columns = [
+      ...hrdColumns,
+      'ResponseMode',
+      'SliderPosition',
+      'DeliveredDeltaRate',
+      'CardiacProcessing',
+    ];
     final csv = [
-      hrdColumns,
-      ...rows.map((r) => hrdColumns.map((c) => r[c]).toList()),
+      columns,
+      ...rows.map((r) => columns.map((c) => r[c]).toList()),
     ].map((row) => row.map(cell).join(',')).join('\n');
     await File(csvPath!).writeAsString(csv, flush: true);
     final path = csvPath!.replaceFirst('.csv', '.json');
@@ -494,6 +547,7 @@ class HrdEngine extends ChangeNotifier {
 
   @override
   void dispose() {
+    progressTicker?.cancel();
     disposed = true;
     generation++;
     deadline?.cancel();

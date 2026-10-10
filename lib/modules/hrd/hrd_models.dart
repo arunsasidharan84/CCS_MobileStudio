@@ -1,5 +1,9 @@
 import 'dart:math';
 
+enum HrdEcgMethod { neurokit, scipyFallback }
+
+enum HrdResponseMode { buttons, combinedSlider }
+
 class HrdConfig {
   const HrdConfig({
     this.trials = 10,
@@ -12,10 +16,14 @@ class HrdConfig {
     this.record = true,
     this.confidence = false,
     this.simulation = false,
+    this.responseMode = HrdResponseMode.buttons,
+    this.ecgMethod = HrdEcgMethod.neurokit,
   });
   final int trials, catchTrials, epochSeconds;
   final bool ecg, audio, record, confidence, simulation;
   final String channel, source;
+  final HrdResponseMode responseMode;
+  final HrdEcgMethod ecgMethod;
   void validate() {
     if (trials < 1 ||
         trials > 1000 ||
@@ -41,6 +49,8 @@ class HrdConfig {
     'record': record,
     'confidence': confidence,
     'simulation': simulation,
+    'responseMode': responseMode.name,
+    'ecgMethod': ecgMethod.name,
   };
 }
 
@@ -93,3 +103,16 @@ const hrdColumns = [
   'PsiThreshold',
   'PsiSlope',
 ];
+
+/// Neutral is deliberately not a response. Direction only updates Psi;
+/// magnitude is a separate ordinal confidence measure.
+class HrdSliderAnswer {
+  HrdSliderAnswer(this.position) {
+    if (!position.isFinite || position.abs() > 9 || position == 0) {
+      throw ArgumentError('Choose a direction with confidence 1–9.');
+    }
+  }
+  final double position;
+  int get response => position > 0 ? 1 : 0;
+  int get confidence => position.abs().round().clamp(1, 9);
+}

@@ -1,4 +1,5 @@
 mod hrd;
+mod hrd_ecg;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};

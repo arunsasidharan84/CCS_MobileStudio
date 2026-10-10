@@ -12,6 +12,7 @@ import '../../core/services/permission_service.dart';
 import '../../core/services/file_naming_service.dart';
 import '../../core/services/multi_device_acquisition_service.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/auto_update_monitor.dart';
 import '../../core/models/module_type.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import '../settings/settings_screen.dart';
@@ -39,17 +40,67 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late TextEditingController _subjectCtrl;
   bool _hasUpdate = false;
+  final _updates = AutoUpdateMonitor();
+  Timer? _updateTimer;
+  SessionManager? _updateSessions;
+  bool _updateDialogOpen = false;
+  bool _foreground = true;
+
+  void _queueUpdatePrompt() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptUpdate());
+  }
+
+  void _onUpdateState() {
+    if (!mounted) return;
+    setState(() => _hasUpdate = _updates.hasUpdate);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptUpdate());
+  }
+
+  void _maybePromptUpdate() {
+    if (!mounted) return;
+    final candidate = _updates.takePrompt(
+      dashboardVisible: ModalRoute.of(context)?.isCurrent ?? false,
+      recording: _updateSessions?.isRecording ?? true,
+      foreground: _foreground,
+      dialogOpen: _updateDialogOpen,
+    );
+    if (candidate == null) return;
+    _updateDialogOpen = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (_) => AppUpdateDialog(info: candidate),
+      ).whenComplete(() => _updateDialogOpen = false),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) {
+      unawaited(_updates.check());
+      _maybePromptUpdate();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _updates.addListener(_onUpdateState);
+    _updateSessions = context.read<SessionManager>()
+      ..addListener(_queueUpdatePrompt);
+    _updateTimer = Timer.periodic(const Duration(hours: 6), (_) {
+      if (_foreground) unawaited(_updates.check());
+    });
     final settings = context.read<SettingsService>();
     _subjectCtrl = TextEditingController(text: settings.subjectCode);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_initializeStorageAndRecovery());
+      unawaited(_updates.check());
       final code = context.read<SettingsService>().subjectCode;
       if (_subjectCtrl.text != code) {
         setState(() => _subjectCtrl.text = code);
@@ -82,19 +133,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-
-    try {
-      final info = await AppUpdateService.check();
-      if (mounted && info.hasUpdate) {
-        setState(() => _hasUpdate = true);
-      }
-    } catch (_) {
-      // Quiet background check - non-critical
-    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _updateTimer?.cancel();
+    _updateSessions?.removeListener(_queueUpdatePrompt);
+    _updates.dispose();
     _subjectCtrl.dispose();
     super.dispose();
   }
@@ -159,7 +205,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
-    await showAppUpdateFlow(context);
+    if (_updateDialogOpen) return;
+    _updateDialogOpen = true;
+    try {
+      await showAppUpdateFlow(context);
+    } finally {
+      _updateDialogOpen = false;
+    }
   }
 
   @override
@@ -256,9 +308,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.settings, color: Colors.white70),
             tooltip: 'Global Settings & Channels',
             onPressed: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              Navigator.of(context)
+                  .push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  )
+                  .then((_) => _maybePromptUpdate());
             },
           ),
           IconButton(
@@ -630,7 +684,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ModuleType.hep => const HepScreen(),
       ModuleType.sleepiness => const SleepinessScreen(),
     };
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => page))
+        .then((_) => _maybePromptUpdate());
   }
 
   void _showDiagnosticsModal(BuildContext context) {

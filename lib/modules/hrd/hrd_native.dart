@@ -84,73 +84,119 @@ Map<String, Object> hrdCompute(Map<String, Object> request) {
       final peaks = calloc<Double>(values.length);
       try {
         input.asTypedList(values.length).setAll(0, values);
-        final analyze = lib
-            .lookupFunction<
-              Bool Function(
-                Pointer<Double>,
-                IntPtr,
-                Double,
-                Bool,
-                Pointer<Double>,
-                Pointer<Double>,
-                Pointer<Double>,
-              ),
-              bool Function(
-                Pointer<Double>,
-                int,
-                double,
-                bool,
-                Pointer<Double>,
-                Pointer<Double>,
-                Pointer<Double>,
-              )
-            >('tn_hrd_analyze');
-        if (!analyze(
-          input,
-          values.length,
-          request['sampleRate'] as double,
-          request['ecg'] as bool,
-          cleaned,
-          peaks,
-          out,
-        )) {
-          throw StateError('Insufficient or invalid cardiac samples');
-        }
-        result['stats'] = out.asTypedList(5).toList();
+
         final rates = calloc<Double>(values.length);
+        final ecg = request['ecg'] as bool;
+        final neurokit = ecg && request['ecgMethod'] != 'scipyFallback';
         try {
-          final rate = lib
-              .lookupFunction<
-                Bool Function(
-                  Pointer<Double>,
-                  IntPtr,
-                  Double,
-                  Double,
-                  Bool,
-                  Pointer<Double>,
-                ),
-                bool Function(
-                  Pointer<Double>,
-                  int,
-                  double,
-                  double,
-                  bool,
-                  Pointer<Double>,
-                )
-              >('tn_hrd_rates');
-          rate(
-            peaks,
-            values.length,
-            request['sampleRate'] as double,
-            out[0],
-            request['ecg'] as bool,
-            rates,
-          );
+          if (neurokit) {
+            final analyze = lib
+                .lookupFunction<
+                  Bool Function(
+                    Pointer<Double>,
+                    IntPtr,
+                    Double,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                  ),
+                  bool Function(
+                    Pointer<Double>,
+                    int,
+                    double,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                  )
+                >('tn_hrd_ecg_neurokit');
+            if (!analyze(
+              input,
+              values.length,
+              request['sampleRate'] as double,
+              cleaned,
+              peaks,
+              rates,
+              out,
+            )) {
+              throw StateError(
+                'Insufficient or invalid ECG samples for NeuroKit2 processing',
+              );
+            }
+          } else {
+            final analyze = lib
+                .lookupFunction<
+                  Bool Function(
+                    Pointer<Double>,
+                    IntPtr,
+                    Double,
+                    Bool,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                  ),
+                  bool Function(
+                    Pointer<Double>,
+                    int,
+                    double,
+                    bool,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                    Pointer<Double>,
+                  )
+                >('tn_hrd_analyze');
+            if (!analyze(
+              input,
+              values.length,
+              request['sampleRate'] as double,
+              ecg,
+              cleaned,
+              peaks,
+              out,
+            )) {
+              throw StateError('Insufficient or invalid cardiac samples');
+            }
+            final rate = lib
+                .lookupFunction<
+                  Bool Function(
+                    Pointer<Double>,
+                    IntPtr,
+                    Double,
+                    Double,
+                    Bool,
+                    Pointer<Double>,
+                  ),
+                  bool Function(
+                    Pointer<Double>,
+                    int,
+                    double,
+                    double,
+                    bool,
+                    Pointer<Double>,
+                  )
+                >('tn_hrd_rates');
+            if (!rate(
+              peaks,
+              values.length,
+              request['sampleRate'] as double,
+              out[0],
+              ecg,
+              rates,
+            )) {
+              throw StateError('Unable to generate cardiac rate curve');
+            }
+          }
+          result['stats'] = out.asTypedList(5).toList();
           result['rates'] = rates.asTypedList(values.length).toList();
+          result['processingMethod'] = neurokit
+              ? 'neurokit2-0.2.12'
+              : ecg
+              ? 'scipyFallback'
+              : 'orbitCustomPpg';
         } finally {
           calloc.free(rates);
         }
-
         result['cleaned'] = cleaned.asTypedList(values.length).toList();
         result['peaks'] = peaks.asTypedList(values.length).toList();
         result['delta'] = request['catchDelta'] ?? next(state);

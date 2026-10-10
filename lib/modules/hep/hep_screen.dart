@@ -12,6 +12,9 @@ import '../../core/services/file_naming_service.dart';
 import '../../core/services/settings_service.dart';
 import '../../core/models/module_type.dart';
 import 'hep_engine.dart';
+import 'orbit_hep_session.dart';
+import '../../core/models/device_profile.dart';
+import '../../core/models/eeg_sample.dart';
 
 class HepScreen extends StatefulWidget {
   const HepScreen({super.key});
@@ -24,6 +27,9 @@ class _HepScreenState extends State<HepScreen> {
   final List<StreamSubscription<SignalStreamSample>> subscriptions = [];
   String? source;
   int? eeg, ecg;
+  bool orbitMode = false;
+  OrbitHepSession? orbit;
+  StreamSubscription<EegSample>? orbitSubscription;
   HepEngine? engine;
   bool running = false;
   DateTime? started;
@@ -33,6 +39,9 @@ class _HepScreenState extends State<HepScreen> {
   @override
   void initState() {
     super.initState();
+    orbitMode =
+        context.read<AcquisitionService>().connectedDeviceKind ==
+        DeviceKind.orbit;
     for (final stream in [
       context.read<AcquisitionService>().streamSamples,
       context.read<MultiDeviceAcquisitionService>().samples,
@@ -40,13 +49,29 @@ class _HepScreenState extends State<HepScreen> {
     ]) {
       subscriptions.add(stream.listen(receive));
     }
+    final acq = context.read<AcquisitionService>();
+    orbitSubscription = acq.samples.listen((s) {
+      if (!mounted || !running || !orbitMode) return;
+      if (acq.connectedDeviceKind != DeviceKind.orbit ||
+          acq.connectedDeviceProfile?.id != orbit?.deviceProfileId) {
+        stop();
+        message = 'Orbit device changed. Restart the session.';
+        return;
+      }
+      orbit?.addEeg(s);
+      if (orbit?.error != null) {
+        stop();
+        message = orbit!.error;
+      }
+    });
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (running) {
         seconds = DateTime.now().difference(started!).inSeconds;
         final last = sources[source];
-        if (last == null ||
-            DateTime.now().difference(last.timestamp).inSeconds > 3) {
+        if (!orbitMode &&
+            (last == null ||
+                DateTime.now().difference(last.timestamp).inSeconds > 3)) {
           engine?.quality = 'Signal unavailable: reconnect the selected stream';
           engine?.bpm = 0;
         }
@@ -59,6 +84,14 @@ class _HepScreenState extends State<HepScreen> {
   void receive(SignalStreamSample s) {
     final key = '${s.deviceProfileId}/${s.streamId}';
     sources[key] = s;
+    if (running && orbitMode) {
+      orbit?.addPpg(s);
+      if (orbit?.error != null) {
+        stop();
+        message = orbit!.error;
+      }
+      return;
+    }
     if (!running || source != key) return;
     if (s.sampleRate != engine!.sampleRate ||
         eeg! >= s.channels.length ||
@@ -92,6 +125,33 @@ class _HepScreenState extends State<HepScreen> {
   (String, String) labels = ('', '');
   void start() {
     try {
+      if (orbitMode) {
+        final acq = context.read<AcquisitionService>();
+        final profile = acq.connectedDeviceProfile;
+        if (acq.connectedDeviceKind != DeviceKind.orbit ||
+            !acq.isStreamReady ||
+            profile == null) {
+          throw StateError('Connect and stream Orbit before starting.');
+        }
+        final ppg = profile.enabledStreams
+            .where((s) => s.signalType == SignalType.ppg)
+            .firstOrNull;
+        if (ppg == null) {
+          throw StateError('Enable the Orbit PPG stream in Settings.');
+        }
+        orbit = OrbitHepSession(
+          deviceProfileId: profile.id,
+          ppgStreamId: ppg.id,
+        );
+        engine = null;
+        setState(() {
+          running = true;
+          started = DateTime.now();
+          seconds = 0;
+          message = null;
+        });
+        return;
+      }
       final s = sources[source];
       if (s == null || eeg == null || ecg == null || eeg == ecg) {
         throw StateError('Select distinct EEG and ECG channels.');
@@ -114,11 +174,63 @@ class _HepScreenState extends State<HepScreen> {
 
   void stop() {
     engine?.finish();
+    orbit?.finish();
     running = false;
   }
 
   Future<void> export() async {
     try {
+      if (orbitMode) {
+        final o = orbit!;
+        final file = File(
+          await FileNamingService.jsonPath(
+            context.read<SettingsService>().subjectCode,
+            ModuleType.hep,
+            started!,
+          ),
+        );
+        await file.writeAsString(
+          jsonEncode({
+            'mode': 'orbit_ppg',
+            'eventReference': 'native PPG pulse peak',
+            'deviceProfileId': o.deviceProfileId,
+            'ppgStreamId': o.ppgStreamId,
+            'eegSampleRate': 250,
+            'ppgSampleRate': 62.5,
+            'started': started!.toIso8601String(),
+            'durationSeconds': seconds,
+            'pulseCount': o.pulseCount,
+            'pulseTimestamps': o.pulseTimes
+                .map((t) => t.toIso8601String())
+                .toList(),
+            'quality': o.quality(DateTime.now()),
+            'channels': [
+              for (var i = 0; i < 2; i++)
+                {
+                  'label': i == 0 ? 'AF7' : 'AF8',
+                  'accepted': o.channels[i].accepted,
+                  'rejected': o.channels[i].rejected,
+                  'gaps': o.channels[i].gaps,
+                  'pseudoCount': o.channels[i].pseudoCount,
+                  'meanUv': o.channels[i].mean,
+                  'semUv': o.channels[i].sem,
+                  'pseudoUv': o.channels[i].pseudo,
+                  'correctedUv': o.channels[i].corrected,
+                },
+            ],
+            'timeMs': List.generate(
+              o.channels.first.length,
+              (i) => (i - o.channels.first.pre) * 4,
+            ),
+            'processing':
+                'Native 62.5 Hz PPG; causal 0.5–8 Hz pulse detector, positive local peaks, 450 ms refractory. AF7/AF8 processed independently: 0.5–40 Hz, 50 Hz notch, detrend, -200/0 ms baseline, -200/+800 ms epochs, artifact rejection, midpoint controls.',
+            'limitations':
+                'PPG pulse-locked estimate, no ECG R-peak timing or pulse transit correction. Device clocks are reconstructed; native PPG resolution is 16 ms. Causal filter delay, pulse transit variability and cardiac field artifacts remain; no ICA or surrogate significance. Overlapping epochs limit SEM interpretation.',
+          }),
+        );
+        if (mounted) setState(() => message = 'Saved ${file.path}');
+        return;
+      }
       final e = engine!;
       final file = File(
         await FileNamingService.jsonPath(
@@ -164,6 +276,7 @@ class _HepScreenState extends State<HepScreen> {
   @override
   void dispose() {
     timer?.cancel();
+    orbitSubscription?.cancel();
     for (final s in subscriptions) {
       s.cancel();
     }
@@ -193,34 +306,60 @@ class _HepScreenState extends State<HepScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            '5-minute resting HEP • synchronized EEG + ECG',
+            '5-minute resting HEP • EEG + cardiac events',
             style: TextStyle(fontSize: 20),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Connect a stream containing both channels. Choose one representative EEG channel and ECG. EEG uses the acquisition reference. Sit still during collection.',
-          ),
-          DropdownButtonFormField<String>(
-            initialValue: source,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Source stream'),
-            items: [
-              for (final k in sources.keys)
-                DropdownMenuItem(
-                  value: k,
-                  child: Text(k, overflow: TextOverflow.ellipsis),
-                ),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('EEG + ECG')),
+              ButtonSegment(value: true, label: Text('Orbit EEG + PPG')),
             ],
-            onChanged: running
+            selected: {orbitMode},
+            onSelectionChanged: running
                 ? null
                 : (v) => setState(() {
-                    source = v;
-                    eeg = ecg = null;
+                    orbitMode = v.first;
                     engine = null;
+                    orbit = null;
+                    message = null;
                   }),
           ),
-          channels('EEG channel', eeg, (v) => setState(() => eeg = v)),
-          channels('ECG channel', ecg, (v) => setState(() => ecg = v)),
+          if (orbitMode) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Orbit: AF7 and AF8 analyzed separately, using native PPG pulse peaks as cardiac events. Connect Orbit and enable its PPG stream in Settings.',
+            ),
+            const Text(
+              'PPG timing includes pulse transit and filter delay. Results are pulse-locked; no ECG R-peak timing correction is applied.',
+            ),
+          ],
+          if (!orbitMode) ...[
+            const Text(
+              'Connect a stream containing both channels. Choose one representative EEG channel and ECG. EEG uses the acquisition reference. Sit still during collection.',
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: source,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Source stream'),
+              items: [
+                for (final k in sources.keys)
+                  DropdownMenuItem(
+                    value: k,
+                    child: Text(k, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: running
+                  ? null
+                  : (v) => setState(() {
+                      source = v;
+                      eeg = ecg = null;
+                      engine = null;
+                    }),
+            ),
+            channels('EEG channel', eeg, (v) => setState(() => eeg = v)),
+            channels('ECG channel', ecg, (v) => setState(() => ecg = v)),
+          ],
           const SizedBox(height: 16),
           if (running) LinearProgressIndicator(value: min(seconds / 300, 1)),
           Text('$seconds / 300 seconds'),
@@ -236,11 +375,33 @@ class _HepScreenState extends State<HepScreen> {
                 child: const Text('Stop'),
               ),
               OutlinedButton(
-                onPressed: !running && e != null ? export : null,
+                onPressed: !running && (e != null || orbit != null)
+                    ? export
+                    : null,
                 child: const Text('Export results'),
               ),
             ],
           ),
+          if (orbitMode && orbit != null) ...[
+            const SizedBox(height: 20),
+            Text(orbit!.quality(DateTime.now())),
+            Text('${orbit!.pulseCount} native PPG pulse peaks'),
+            for (var i = 0; i < 2; i++) ...[
+              Text(
+                '${i == 0 ? "AF7" : "AF8"} • ${orbit!.channels[i].accepted} accepted • ${orbit!.channels[i].rejected} rejected • ${orbit!.channels[i].gaps} gaps',
+              ),
+              Text(
+                '200–500 ms pulse-locked mean: ${orbit!.channels[i].windowAmplitude.toStringAsFixed(2)} µV',
+              ),
+              SizedBox(
+                height: 200,
+                child: CustomPaint(painter: _HepPlot(orbit!.channels[i])),
+              ),
+              const Text(
+                '−200 ms              PPG pulse (0)              +800 ms\nBlue: mean ± SEM • orange: midpoint pseudotrials',
+              ),
+            ],
+          ],
           if (e != null) ...[
             const SizedBox(height: 20),
             Text(e.quality),

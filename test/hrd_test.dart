@@ -80,6 +80,37 @@ void main() {
         expect((checkpoint['history'] as List).length, 1);
         await engine.stop();
         expect(engine.phase, HrdPhase.stopped);
+        final sliderEngine = HrdEngine(
+          config: const HrdConfig(
+            trials: 1,
+            catchTrials: 0,
+            record: false,
+            confidence: true,
+            responseMode: HrdResponseMode.combinedSlider,
+          ),
+          subject: 'S02',
+          sessions: sessions,
+          streams: [],
+        );
+        try {
+          await sliderEngine.start();
+          sliderEngine.deadline?.cancel();
+          sliderEngine.phase = HrdPhase.response;
+          sliderEngine.hr = 72;
+          sliderEngine.delta = 10;
+          sliderEngine.presented = 82;
+          sliderEngine.reactionClock.start();
+          await sliderEngine.answer(0, combinedConfidence: 6, position: -6);
+          expect(sliderEngine.phase, HrdPhase.complete);
+          expect(sliderEngine.rows.single['SubjResponse'], 0);
+          expect(sliderEngine.rows.single['SubjRating'], 6);
+          expect(sliderEngine.rows.single['SliderPosition'], -6.0);
+          expect(sliderEngine.history, [
+            [10.0, 0.0],
+          ]);
+        } finally {
+          sliderEngine.dispose();
+        }
       } finally {
         engine.dispose();
         sessions.dispose();
@@ -150,6 +181,26 @@ void main() {
           (result['peaks'] as List<double>).where((v) => v == 1).length,
           greaterThan(15),
         );
+        expect(
+          result['processingMethod'],
+          ecg ? 'neurokit2-0.2.12' : 'orbitCustomPpg',
+        );
+        if (ecg) {
+          final legacy = await compute(hrdCompute, <String, Object>{
+            'history': <List<double>>[],
+            'samples': sim['samples']!,
+            'sampleRate': fs,
+            'ecg': true,
+            'ecgMethod': 'scipyFallback',
+          });
+          expect(legacy['processingMethod'], 'scipyFallback');
+          expect((legacy['stats'] as List<double>)[0], closeTo(72, 1));
+          final rates = result['rates'] as List<double>;
+          expect(
+            (result['stats'] as List<double>)[0],
+            closeTo(rates.reduce((a, b) => a + b) / rates.length, 1e-9),
+          );
+        }
         expect(result['delta'], -2.5);
         expect(
           (result['estimate'] as List<double>).every((v) => v.isNaN),

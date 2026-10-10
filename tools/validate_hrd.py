@@ -43,6 +43,8 @@ try:
 finally: lib.tn_hrd_free(p)
 print('Psi: 25 posterior updates, bounds, slopes and adaptive stimuli match the source.')
 
+mad_ref = extract('ccs_hrd_utilities.py', '_compute_mad', {'np':np})
+entropy_ref = extract('ccs_hrd_utilities.py', '_sample_entropy', {'np':np})
 ppg = extract('ccs_hrd_utilities.py', 'ppg_process_custom', {'np':np,'signal':signal,'savgol_filter':savgol_filter,'pd':SimpleNamespace(DataFrame=lambda x:x)})
 lib.tn_hrd_analyze.argtypes=[C.POINTER(C.c_double),C.c_size_t,C.c_double,C.c_bool,C.POINTER(C.c_double),C.POINTER(C.c_double),C.POINTER(C.c_double)]
 lib.tn_hrd_analyze.restype=C.c_bool
@@ -56,6 +58,11 @@ for fs in [62.5,125,250]:
     np.testing.assert_allclose(clean,expected['PPG_Clean'],atol=2e-6)
     np.testing.assert_array_equal(np.flatnonzero(peaks),info['PPG_Peaks'])
     np.testing.assert_allclose(stats[0],info['avg_heart_rate'],atol=1e-10)
+    all_bpm = 60*fs/np.diff(info['PPG_Peaks'])
+    np.testing.assert_allclose(stats[1],mad_ref(all_bpm),atol=1e-10)
+    np.testing.assert_allclose(stats[2],mad_ref(all_bpm)*100/12,atol=1e-10)
+    np.testing.assert_allclose(stats[3],entropy_ref(all_bpm),atol=1e-10)
+
 print('PPG: cleaned signals, peaks and BPM match at 62.5, 125 and 250 Hz.')
 
 # Compare the explicitly supported source ECG fallback (NeuroKit2 absent).
@@ -81,3 +88,35 @@ for bpm in [15,60,72.5,120,199.5]:
     assert lib.tn_hrd_audio(bpm,len(expected)/44100,actual.ctypes.data_as(C.POINTER(C.c_int16)),len(actual))==len(actual)
     np.testing.assert_allclose(actual,expected,atol=1)
 print('Audio: synthesized PCM matches representative original WAV files within one PCM count.')
+
+# Optional real-session audit. Read only; never modifies participant files.
+if len(sys.argv) > 3:
+    import json
+    session_path=Path(sys.argv[3])
+    session=json.loads(session_path.read_text())
+    rows=session['trials']; p=lib.tn_hrd_create()
+    ref=Psi(np.arange(-50.5,51.5,1),(-50.5,50.5),(0.1,10),gamma=0,delta=0.05,n_alpha_steps=102,n_beta_steps=100)
+    errors=[];native_hr=[];reference_hr=[]
+    try:
+        for row in rows:
+            trial=int(row['Trial'])
+            snap=json.loads(session_path.with_name(session_path.stem+f'_trial{trial:04d}.json').read_text())
+            raw=np.ascontiguousarray(snap['raw'],dtype=np.float64);fs=float(snap['sampleRate']);ecg=snap['signal']=='ECG'
+            if row['TrialType']=='psi':
+                expected_delta=float(ref.getNextStim())
+                assert row['PsiDeltaRate']==expected_delta,(trial,'adaptive delta',row['PsiDeltaRate'],expected_delta)
+            if not ecg:
+                expected,info=ppg(raw,fs)
+                np.testing.assert_allclose(snap['cleaned'],expected['PPG_Clean'],atol=2e-6)
+                np.testing.assert_array_equal(np.flatnonzero(snap['peaks']),info['PPG_Peaks'])
+                np.testing.assert_allclose(row['ActualRate'],info['avg_heart_rate'],atol=1e-10)
+                errors.append(abs(row['ActualRate']-info['avg_heart_rate']))
+            delivered=round(min(199.5,max(15.0,row['ActualRate']+row['PsiDeltaRate']))*2)/2
+            assert row['PresentedRate']==delivered
+            if row['TrialType']=='psi' and row['SubjResponse'] is not None:
+                ref.addResponse(row['PsiDeltaRate'],row['SubjResponse']);assert lib.tn_hrd_update(p,row['PsiDeltaRate'],row['SubjResponse'])
+            out=(C.c_double*4)();assert lib.tn_hrd_estimate(p,out)
+            if row['PsiThreshold'] is not None:np.testing.assert_allclose(row['PsiThreshold'],out[0],atol=1e-10)
+            if row['PsiSlope'] is not None:np.testing.assert_allclose(row['PsiSlope'],out[3],atol=1e-10)
+        print(f'Real-session audit: {len(rows)} trials; adaptive deltas, delivered rates and posterior estimates match. PPG max BPM error {max(errors,default=0):.3g}.')
+    finally:lib.tn_hrd_free(p)

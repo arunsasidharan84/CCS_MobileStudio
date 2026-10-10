@@ -140,7 +140,7 @@ The shared viewing-and-recording engine used by every other module, also availab
 ### 7. Heart Rate Detection — Bayesian Psi
 * Interoceptive rate comparison using xAMP-L10 ECG or Orbit PPG, with auditory/visual feedback, catch trials and optional confidence ratings.
 * Native Rust marginal-Psi estimation and cardiac analysis; Flutter visualization and background PDF/SVG reporting.
-* Lightweight procedural audio replaces the source's large rate-file library. See [setup, parity coverage and validation](docs/hrd.md), including the optional NeuroKit2 ECG limitation.
+* Lightweight procedural audio replaces the source's large rate-file library. See [setup, parity coverage and validation](docs/hrd.md), including native NeuroKit2 ECG parity and processing provenance.
 
 ### 8. Heartbeat Evoked Potential (HEP)
 * Live 5-minute resting EEG + ECG collection from a synchronized multi-channel stream.
@@ -169,7 +169,7 @@ The shared viewing-and-recording engine used by every other module, also availab
 * **Session Manager** — tracks session timestamp, subject, active module, and segment index; automatically closes and re-opens EDF segments across disconnect/reconnect events and exports finished recordings to `Downloads/CCS_MobileStudio`.
 * **Standardized File Naming** — every exported file follows `<subject>_<MODULE>_<yyyyMMdd_HHmmss>[_partN].<ext>`, where `MODULE` is one of `NIDRA`, `ANGEL`, `WM`, `EEG`, `HEARTSYNC`, `HRD`, `HEP`, or `SSS`.
 * **Diagnostics & Troubleshooting Drawer** — per-session tools to test the audio beep/ACLS speaker path, verify the LSL multicast lock (required for WiFi stream discovery on Android 10+), and check the export location, without restarting the app.
-* **In-App Upgrades** — check for updates directly from the Home Dashboard toolbar or Settings screen. Supports background update detection with visual badging, SHA-256 integrity verification, and one-tap installation across Android (`.apk`), macOS (in-place bundle update), and Windows.
+* **In-App Upgrades** — check for updates directly from the Home Dashboard toolbar or Settings screen. Supports automatic startup update prompts, foreground/resume checks, task/recording deferral, visual badging, SHA-256 integrity verification, and one-tap installation across Android (`.apk`), macOS (in-place bundle update), and Windows.
 
 ---
 
@@ -290,3 +290,5 @@ flutter build windows --release
 
 * `rust/target/` (Cargo build cache) is excluded from version control via `.gitignore` — build locally with `rust/build_android.sh` or `cargo build`.
 * Compiled `.so` files under `android/app/src/main/jniLibs/` are tracked to facilitate direct Android build consumption; regenerate them with `rust/build_android.sh` after updating Rust code.
+
+Automatic update behavior and GitHub release prerequisites are documented in [Auto updates](docs/auto_updates.md).

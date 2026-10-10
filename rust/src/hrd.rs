@@ -336,9 +336,15 @@ pub unsafe extern "C" fn tn_hrd_analyze(
     } else {
         bpm.iter().sum::<f64>() / bpm.len() as f64
     };
-    let mut sorted = bpm.clone();
+    // The runner computes HRV diagnostics from all detected intervals,
+    // while custom PPG mean HR uses range/IQR-filtered intervals.
+    let diagnostic_bpm: Vec<f64> = selected
+        .windows(2)
+        .map(|w| 60.0 * fs / (w[1] - w[0]) as f64)
+        .collect();
+    let mut sorted = diagnostic_bpm.clone();
     sorted.sort_by(f64::total_cmp);
-    let mad = if sorted.is_empty() {
+    let mad = if selected.len() < 3 {
         f64::NAN
     } else {
         let med = quantile(&sorted, 0.5);
@@ -346,7 +352,11 @@ pub unsafe extern "C" fn tn_hrd_analyze(
         dev.sort_by(f64::total_cmp);
         quantile(&dev, 0.5) * 1.4826
     };
-    let en = sample_entropy(&bpm);
+    let en = if selected.len() < 3 {
+        f64::NAN
+    } else {
+        sample_entropy(&diagnostic_bpm)
+    };
     let stats = [mean, mad, mad * 100.0 / 12.0, en, selected.len() as f64];
     ptr::copy_nonoverlapping(stats.as_ptr(), out, 5);
     true
@@ -537,4 +547,104 @@ pub unsafe extern "C" fn tn_hrd_rates(
         };
     }
     true
+}
+
+/// Native NeuroKit2 ECG branch. Retains legacy tn_hrd_analyze for replay.
+#[no_mangle]
+pub unsafe extern "C" fn tn_hrd_ecg_neurokit(
+    input: *const f64,
+    n: usize,
+    fs: f64,
+    cleaned: *mut f64,
+    peaks: *mut f64,
+    rates: *mut f64,
+    out: *mut f64,
+) -> bool {
+    if input.is_null()
+        || cleaned.is_null()
+        || peaks.is_null()
+        || rates.is_null()
+        || out.is_null()
+        || !(32..=300000).contains(&n)
+        || !fs.is_finite()
+        || !(25.0..=5000.0).contains(&fs)
+    {
+        return false;
+    }
+    let x = std::slice::from_raw_parts(input, n);
+    if x.iter().any(|v| !v.is_finite()) {
+        return false;
+    }
+    let y = match crate::hrd_ecg::clean(x, fs) {
+        Some(v) => v,
+        None => return false,
+    };
+    let raw_peaks = crate::hrd_ecg::detect(&y, fs);
+    let selected = crate::hrd_ecg::correct(&raw_peaks, fs);
+    let rate = crate::hrd_ecg::rate(&selected, fs, n);
+    ptr::copy_nonoverlapping(y.as_ptr(), cleaned, n);
+    ptr::copy_nonoverlapping(rate.as_ptr(), rates, n);
+    ptr::write_bytes(peaks, 0, n);
+    for &i in &selected {
+        if i < n {
+            *peaks.add(i) = 1.0;
+        }
+    }
+    let mean = rate.iter().sum::<f64>() / n as f64;
+    let bpm: Vec<f64> = selected
+        .windows(2)
+        .map(|w| 60.0 * fs / (w[1] - w[0]) as f64)
+        .collect();
+    let mad = if selected.len() < 3 {
+        f64::NAN
+    } else {
+        let med = quantile(
+            &{
+                let mut v = bpm.clone();
+                v.sort_by(f64::total_cmp);
+                v
+            },
+            0.5,
+        );
+        let mut dev: Vec<f64> = bpm.iter().map(|x| (x - med).abs()).collect();
+        dev.sort_by(f64::total_cmp);
+        quantile(&dev, 0.5) * 1.4826
+    };
+    let en = if selected.len() < 3 {
+        f64::NAN
+    } else {
+        sample_entropy(&bpm)
+    };
+    let stats = [mean, mad, mad * 100.0 / 12.0, en, selected.len() as f64];
+    ptr::copy_nonoverlapping(stats.as_ptr(), out, 5);
+    true
+}
+/// Testable pure stages, also available to offline cardiac validation tools.
+#[no_mangle]
+pub unsafe extern "C" fn tn_hrd_ecg_correct(
+    input: *const f64,
+    n: usize,
+    fs: f64,
+    out: *mut f64,
+    capacity: usize,
+) -> usize {
+    if input.is_null() || out.is_null() || n == 0 || n > 20000 || !fs.is_finite() || fs <= 0.0 {
+        return 0;
+    }
+    let x = std::slice::from_raw_parts(input, n);
+    if x.iter()
+        .any(|v| !v.is_finite() || *v < 0.0 || *v > (usize::MAX / 4) as f64)
+        || x.windows(2).any(|w| w[1] <= w[0])
+    {
+        return 0;
+    }
+    let p: Vec<usize> = x.iter().map(|v| *v as usize).collect();
+    let corrected = crate::hrd_ecg::correct(&p, fs);
+    if corrected.len() > capacity {
+        return 0;
+    }
+    for (i, v) in corrected.iter().enumerate() {
+        *out.add(i) = *v as f64;
+    }
+    corrected.len()
 }

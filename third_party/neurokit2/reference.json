@@ -1,0 +1,14 @@
+{
+  "version": "0.2.12",
+  "distribution": "neurokit2-0.2.12-py2.py3-none-any.whl",
+  "source_sha256": {
+    "ecg/ecg_clean.py": "cc5a072d7d55480c759c8ee019e5579b085b84eef15cc3883bb39cf7d517b76f",
+    "ecg/ecg_findpeaks.py": "8ffdb839c3ceca56b497c9ecfedeedc3ae86286ac1ab431eb432e4d471a04390",
+    "ecg/ecg_peaks.py": "409191307b4bd6d5a339e4901c8c4854de8827e49f33919b345ab4e494555718",
+    "ecg/ecg_process.py": "79a2160a2a921cf953f52e837d1025cca7474d20c65b4c53aa6114dee4e7a349",
+    "signal/signal_filter.py": "c4c05ec753866445bff594ba65287351d01f499f26d66ffcefaf6adc33f3673d",
+    "signal/signal_fixpeaks.py": "4a55608b03962ffc5e39a2780ccf079e383e851f680a6cb96802e3adb5c51842",
+    "signal/signal_period.py": "c4b96294e056c208debda64669e10cd321f04e3f640199b4f796117cb91d3a3b",
+    "signal/signal_interpolate.py": "224fad0ecbe786d68016c378755eae6e1ddabf3906672191a48807a9ac9fac0e"
+  }
+}

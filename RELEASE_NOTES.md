@@ -1,10 +1,20 @@
 # Release Notes — CCS Mobile Studio
 
+## Version 1.0.9 (Build 10) — October 2026
+
+### Highlights
+- **Orbit EEG + PPG mode for HEP**: Native PPG pulse peaks mark cardiac events; AF7 and AF8 produce independent live HEP estimates with real-time quality checks and artifact rejection. Exports both frontal channels and pulse timestamps as PPG pulse-locked session data.
+- **Heart Rate Detection (HRD) Module**: Native NeuroKit2 0.2.12 ECG branch in Rust with verified R-peak detection, iterative artifact correction, and continuous rate interpolation.
+- **Automatic update prompts & macOS recovery**: Deferred update dialogs during recordings, background notification badges, and one-tap installs.
+
+---
+
 ## Version 1.0.8 (Build 9) — October 2026
 
 ### Highlights
+- **Automatic update prompts**: SleepStudio-style startup discovery and foreground/resume checks, with prompts deferred during tasks and recordings. Existing download/install/restart flow remains one click, with recording safeguards and honest checksum status. See [update distribution setup](docs/auto_updates.md).
 - **Heartbeat Evoked Potential (HEP) Module**: Five-minute live resting EEG + ECG collection from a synchronized stream, causal bandpass filtering, online R-peak detection, artifact rejection, real-time HEP waveform visualization with SEM, midpoint-RR pseudotrial control comparison, and session JSON export.
-- **Heart Rate Detection (HRD) Module**: Port of the Bayesian marginal-Psi interoceptive heart-rate discrimination task (`orbit_HRD`). Dual-sensor support for xAMP-L10 (ECG fallback pipeline) and Orbit (custom PPG pipeline). Rust-accelerated numerical backend, procedural audio feedback, visual feedback mode, configurable catch trials, and multi-format reports (CSV, JSON, SVG, PDF).
+- **Heart Rate Detection (HRD) Module**: Port of the Bayesian marginal-Psi interoceptive heart-rate discrimination task (`orbit_HRD`). Dual-sensor support for xAMP-L10 (native NeuroKit2 0.2.12 pipeline) and Orbit (custom PPG pipeline). Rust-accelerated numerical backend, procedural audio feedback, visual feedback mode, configurable catch trials, and multi-format reports (CSV, JSON, SVG, PDF).
 - **Parity & Architecture**: Rust native library extension (`rust/src/hrd.rs`) without adding external Rust or Flutter dependencies; background isolate execution keeps UI telemetry fluid at 60 FPS.
 - **In-App Upgrades & macOS Gatekeeper Auto-Recovery**: Seamless update checks, background notification badges, and one-tap upgrades across Android, macOS, and Windows. On macOS, updates and local installations automatically clear Gatekeeper quarantine and re-sign with detected Apple Developer certificates.
 

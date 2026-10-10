@@ -12,6 +12,7 @@ import '../../core/services/settings_service.dart';
 import '../../core/widgets/connection_status_bar.dart';
 import 'hrd_engine.dart';
 import 'hrd_models.dart';
+import 'hrd_feedback_widgets.dart';
 
 class HrdScreen extends StatefulWidget {
   const HrdScreen({super.key});
@@ -30,6 +31,8 @@ class _HrdScreenState extends State<HrdScreen> {
       record = true,
       confidence = false,
       simulation = false;
+  HrdEcgMethod ecgMethod = HrdEcgMethod.neurokit;
+  HrdResponseMode responseMode = HrdResponseMode.buttons;
   bool loaded = false;
   @override
   void didChangeDependencies() {
@@ -43,9 +46,15 @@ class _HrdScreenState extends State<HrdScreen> {
     channel.text = saved["channel"] as String? ?? "PPG";
     source.text = saved["source"] as String? ?? "";
     ecg = saved["ecg"] as bool? ?? false;
+    ecgMethod = saved["ecgMethod"] == "scipyFallback"
+        ? HrdEcgMethod.scipyFallback
+        : HrdEcgMethod.neurokit;
     audio = saved["audio"] as bool? ?? true;
     record = saved["record"] as bool? ?? true;
     confidence = saved["confidence"] as bool? ?? false;
+    responseMode = saved["responseMode"] == "combinedSlider"
+        ? HrdResponseMode.combinedSlider
+        : HrdResponseMode.buttons;
   }
 
   String? error;
@@ -70,6 +79,8 @@ class _HrdScreenState extends State<HrdScreen> {
         record: record,
         confidence: confidence,
         simulation: simulation,
+        responseMode: responseMode,
+        ecgMethod: ecgMethod,
       );
       config.validate();
       context.read<SettingsService>().update(
@@ -131,6 +142,28 @@ class _HrdScreenState extends State<HrdScreen> {
             channel.text = ecg ? 'ECG' : 'PPG';
           }),
         ),
+        if (ecg)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: DropdownButtonFormField<HrdEcgMethod>(
+              initialValue: ecgMethod,
+              decoration: const InputDecoration(
+                labelText: 'ECG processing',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: HrdEcgMethod.neurokit,
+                  child: Text('NeuroKit2 • native Rust'),
+                ),
+                DropdownMenuItem(
+                  value: HrdEcgMethod.scipyFallback,
+                  child: Text('Legacy SciPy fallback'),
+                ),
+              ],
+              onChanged: (v) => setState(() => ecgMethod = v!),
+            ),
+          ),
         field('Exact cardiac channel label', channel),
         field('Optional source ID: deviceProfileId/streamId', source),
         const Text(
@@ -153,14 +186,42 @@ class _HrdScreenState extends State<HrdScreen> {
           value: simulation,
           onChanged: (v) => setState(() => simulation = v),
         ),
-        SwitchListTile(
-          title: const Text('Collect confidence (0–9)'),
-          subtitle: const Text(
-            'Optional extension; disabled to match the source UI runner',
-          ),
-          value: confidence,
-          onChanged: (v) => setState(() => confidence = v),
+        const SizedBox(height: 16),
+        const Text(
+          'Response style',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
+        const SizedBox(height: 8),
+        SegmentedButton<HrdResponseMode>(
+          segments: const [
+            ButtonSegment(
+              value: HrdResponseMode.buttons,
+              label: Text('Separate choices'),
+            ),
+            ButtonSegment(
+              value: HrdResponseMode.combinedSlider,
+              label: Text('Combined slider'),
+            ),
+          ],
+          selected: {responseMode},
+          onSelectionChanged: (v) => setState(() => responseMode = v.first),
+        ),
+        if (responseMode == HrdResponseMode.combinedSlider)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text(
+              'Left = slower, right = faster. Distance from centre records confidence 1–9. Confirm submits both together. This is a protocol variant; it is logged separately.',
+            ),
+          ),
+        if (responseMode == HrdResponseMode.buttons)
+          SwitchListTile(
+            title: const Text('Collect confidence (0–9)'),
+            subtitle: const Text(
+              'Optional extension; disabled to match the source UI runner',
+            ),
+            value: confidence,
+            onChanged: (v) => setState(() => confidence = v),
+          ),
         if (error != null)
           Text(error!, style: const TextStyle(color: Colors.red)),
         FilledButton.icon(
@@ -273,7 +334,8 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
       unawaited(leave());
       return;
     }
-    if (engine.phase == HrdPhase.response) {
+    if (engine.phase == HrdPhase.response &&
+        widget.config.responseMode == HrdResponseMode.buttons) {
       if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.arrowLeft) {
         unawaited(engine.answer(1));
       }
@@ -313,15 +375,35 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
             padding: const EdgeInsets.all(24),
             children: [
               Text(
-                engine.message,
+                p == HrdPhase.ready &&
+                        widget.config.responseMode ==
+                            HrdResponseMode.combinedSlider
+                    ? 'Compare the feedback with your heart rate. Move left for slower or right for faster; distance from centre shows your confidence. Confirm to submit.'
+                    : engine.message,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: p == HrdPhase.fixation ? 80 : 26),
               ),
               const SizedBox(height: 24),
               if (p == HrdPhase.ready)
                 FilledButton(onPressed: begin, child: const Text('Begin')),
-              if (p == HrdPhase.collecting)
-                LinearProgressIndicator(value: engine.progress),
+              if (p != HrdPhase.ready &&
+                  p != HrdPhase.complete &&
+                  p != HrdPhase.stopped)
+                HrdJourneyProgress(
+                  completed: engine.rows.length,
+                  total: widget.config.trials,
+                  stage: switch (p) {
+                    HrdPhase.collecting =>
+                      'Listening window • focus on your heart',
+                    HrdPhase.fixation => 'Get ready for the next round',
+                    HrdPhase.response => 'Your choice',
+                    HrdPhase.rating => 'Your confidence',
+                    HrdPhase.error => 'Round paused',
+                    _ => 'Preparing the next step',
+                  },
+                  collecting: p == HrdPhase.collecting,
+                  fraction: engine.progress,
+                ),
               if (p == HrdPhase.response) ...[
                 if (!widget.config.audio)
                   SizedBox(
@@ -330,24 +412,35 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
                       painter: HrdRatePainter(engine.presented),
                     ),
                   ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => engine.answer(1),
-                        child: const Text('Faster (1 / ←)'),
-                      ),
+                if (widget.config.responseMode ==
+                    HrdResponseMode.combinedSlider)
+                  HrdCombinedResponse(
+                    key: ValueKey('slider-${engine.trial}'),
+                    onConfirm: (answer) => engine.answer(
+                      answer.response,
+                      combinedConfidence: answer.confidence,
+                      position: answer.position,
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => engine.answer(0),
-                        child: const Text('Slower (0 / →)'),
+                  )
+                else
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => engine.answer(1),
+                          child: const Text('Faster (1 / ←)'),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => engine.answer(0),
+                          child: const Text('Slower (0 / →)'),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
               if (p == HrdPhase.rating)
                 Wrap(
@@ -365,18 +458,13 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
                   onPressed: engine.retry,
                   child: const Text('Retry trial'),
                 ),
-              if (p == HrdPhase.complete || p == HrdPhase.stopped) ...[
-                if (engine.estimate[0].isFinite)
-                  Text(
-                    'Bias: ${engine.estimate[0].toStringAsFixed(1)} BPM   Slope: ${engine.estimate[3].toStringAsFixed(2)}',
-                  ),
-                SizedBox(
-                  height: 240,
-                  child: CustomPaint(painter: HrdSummaryPainter(engine.rows)),
+              if (p == HrdPhase.complete || p == HrdPhase.stopped)
+                HrdResultsPanel(
+                  rows: engine.rows,
+                  estimate: engine.estimate,
+                  paths: engine.paths,
+                  complete: engine.rows.length == widget.config.trials,
                 ),
-                const SizedBox(height: 16),
-                SelectableText(engine.paths.join('\n')),
-              ],
               if (p != HrdPhase.ready &&
                   p != HrdPhase.complete &&
                   p != HrdPhase.stopped)
@@ -384,19 +472,28 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
                   onPressed: leave,
                   child: const Text('Stop and save partial session'),
                 ),
-              if (engine.cleaned.isNotEmpty &&
-                  p != HrdPhase.response &&
-                  p != HrdPhase.rating) ...[
-                const Text(
-                  'Last trial: cleaned cardiac signal and detected peaks',
-                ),
-                SizedBox(
-                  height: 160,
-                  child: CustomPaint(
-                    painter: HrdSignalPainter(engine.cleaned, engine.peakMask),
+              if ((p == HrdPhase.complete || p == HrdPhase.stopped) &&
+                  engine.cleaned.isNotEmpty)
+                ExpansionTile(
+                  title: const Text('Signal verification • last trial'),
+                  subtitle: const Text(
+                    'Cleaned cardiac waveform and detected peaks',
                   ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        height: 160,
+                        child: CustomPaint(
+                          painter: HrdSignalPainter(
+                            engine.cleaned,
+                            engine.peakMask,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
             ],
           ),
         ),
@@ -461,73 +558,4 @@ class HrdSignalPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(HrdSignalPainter old) => values != old.values;
-}
-
-class HrdSummaryPainter extends CustomPainter {
-  HrdSummaryPainter(this.rows);
-  final List<Map<String, Object?>> rows;
-  @override
-  void paint(Canvas c, Size s) {
-    if (rows.isEmpty) return;
-    final estimatePath = Path();
-    bool begun = false;
-    for (var i = 0; i < rows.length; i++) {
-      final r = rows[i], x = 20 + (s.width - 40) * (i + 0.5) / rows.length;
-      double y(double v) => s.height / 2 - v * s.height / 120;
-      final d = r['PsiDeltaRate'] as double;
-      final response = r['SubjResponse'];
-      c.drawCircle(
-        Offset(x, y(d)),
-        4,
-        Paint()
-          ..color = (r['TrialType'] == 'catch'
-              ? Colors.grey
-              : response == 1
-              ? Colors.redAccent
-              : Colors.blueAccent),
-      );
-      final a = r['EstimatedRateMean'];
-      if (a is double && a.isFinite) {
-        final low = r['EstimatedRateLow'] as double,
-            high = r['EstimatedRateHigh'] as double;
-        c.drawLine(
-          Offset(x, y(low)),
-          Offset(x, y(high)),
-          Paint()
-            ..color = Colors.teal
-            ..strokeWidth = 3,
-        );
-        if (!begun) {
-          estimatePath.moveTo(x, y(a));
-          begun = true;
-        } else {
-          estimatePath.lineTo(x, y(a));
-        }
-      }
-    }
-    c.drawLine(
-      Offset(0, s.height / 2),
-      Offset(s.width, s.height / 2),
-      Paint()..color = Colors.white24,
-    );
-    c.drawPath(
-      estimatePath,
-      Paint()
-        ..color = Colors.tealAccent
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-    final t = TextPainter(
-      text: const TextSpan(
-        text:
-            'Delta BPM • red faster / blue slower / grey catch • teal bias ± SD/2',
-        style: TextStyle(color: Colors.white, fontSize: 12),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: s.width);
-    t.paint(c, Offset.zero);
-  }
-
-  @override
-  bool shouldRepaint(HrdSummaryPainter old) => true;
 }

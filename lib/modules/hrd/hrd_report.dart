@@ -32,6 +32,9 @@ Future<List<String>> writeHrdReport(
         children: [
           pw.Header(level: 0, text: 'Heart Rate Detection - $subject'),
           pw.Text(
+            'Response mode: ${rows.first['ResponseMode'] ?? 'buttons (legacy)'}',
+          ),
+          pw.Text(
             '${rows.length} completed trials. Red: faster; blue: slower; grey: catch/no response. Green: posterior mean and SD/2 bounds.',
           ),
           pw.SizedBox(height: 20),
@@ -65,6 +68,7 @@ Future<List<String>> writeHrdReport(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Header(level: 0, text: 'Trial ${index + 1}: ${snap['signal']}'),
+            pw.Text('Processing: ${snap['processingMethod'] ?? 'legacy'}'),
             pw.Text(
               'Source: ${snap['source']}   Sampling: ${snap['sampleRate']} Hz',
             ),
@@ -81,7 +85,7 @@ Future<List<String>> writeHrdReport(
                   ? 'Timeout'
                   : row['SubjResponse'] == 1
                   ? 'Faster'
-                  : 'Slower'}\nResponse time: ${row['ResponseTime'] ?? 'NA'} seconds\nConfidence: ${row['SubjRating'] ?? 'NA'}\nDetected peaks: ${stats[4]}\nRobust HR MAD: ${stats[1]}\nHRV score: ${stats[2]}\nSample entropy: ${stats[3]}',
+                  : 'Slower'}\nResponse time: ${row['ResponseTime'] ?? 'NA'} seconds\nConfidence: ${row['SubjRating'] ?? 'NA'}\nResponse mode: ${row['ResponseMode'] ?? 'buttons (legacy)'}\nDetected peaks: ${stats[4]}\nRobust HR MAD: ${stats[1]}\nHRV score: ${stats[2]}\nSample entropy: ${stats[3]}',
             ),
             pw.SizedBox(height: 20),
             pw.Text(

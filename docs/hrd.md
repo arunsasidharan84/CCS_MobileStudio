@@ -14,7 +14,7 @@ Auditory feedback reproduces the source pulse waveform and ten-beat playback (tw
 
 ## Native computation and footprint
 
-`rust/src/hrd.rs` implements the signed logistic marginal-Psi algorithm, fourth-order bandpass resulting from the source's order-2 Butterworth bandpass, zero-phase filtering, median/Savitzky–Golay PPG processing, peak selection, RR/IQR rejection, mean HR, robust MAD, source HRV score/sample entropy, instantaneous rate curves, simulated signals and PCM generation. It introduces **no Rust or Flutter dependencies**.
+`rust/src/hrd.rs` implements the signed logistic marginal-Psi algorithm, the NeuroKit2 ECG pipeline and fourth-order bandpass resulting from the source's order-2 Butterworth bandpass, zero-phase filtering, median/Savitzky–Golay PPG processing, peak selection, RR/IQR rejection, mean HR, robust MAD, source HRV score/sample entropy, instantaneous rate curves, simulated signals and PCM generation. It introduces **no Rust or Flutter dependencies**.
 
 Dart owns acquisition subscriptions, protocol state, response timing, plots and document layout. Native work runs in a background isolate using the existing shared library. Report rendering also runs in a background isolate. Native handles are local to that isolate and always released. The posterior is only 10,200 doubles (~80 KiB); the source's 138 MB rate sound library is replaced with procedural synthesis plus its ~183 KiB bell asset. Trial signal buffers cover one epoch, not the whole session; snapshots are written to disk per trial.
 
@@ -33,10 +33,12 @@ Dart owns acquisition subscriptions, protocol state, response timing, plots and 
 | Feedback quantization | Actual HR + selected delta; clamp 15…199.5, round to half BPM with Python ties-to-even |
 | Estimate bounds | Mean ± SD/2, preserving source definition; **not** a credible interval |
 | PPG | Source custom pipeline; compared cleaned samples, peak indices and BPM at 62.5, 125 and 250 Hz |
-| ECG | Source SciPy fallback; compared cleaned samples, R peaks and mean BPM at 125 and 250 Hz |
+| ECG | Default native NeuroKit2 0.2.12 pipeline; cleaned ECG, corrected R peaks, full rate curve and mean BPM validated against `nk.bio_process` at 125, 250, 500 and 1000 Hz. Legacy SciPy fallback remains selectable. |
 | Audio | Representative source WAV comparisons within one 16-bit PCM count |
 
-**Not yet full parity with optional NeuroKit2:** the source can use NeuroKit2's ECG cleaning, artifact correction and interpolated `ECG_Rate` mean when that package is installed. This port implements the source's documented dependency-free fallback instead. It must not be described as numerically identical to that optional branch. Live xAMP-L10 / Orbit validation and audio hardware latency measurement remain necessary. The simulation is a deterministic native 72 BPM demonstration, not a reproduction of the source's random EEG simulator.
+**NeuroKit2 ECG branch is now native:** fifth-order 0.5 Hz high-pass SOS filtering, 50 Hz powerline smoothing, gradient/prominence R-peak detection, iterative Kubios artifact correction and monotone-cubic period interpolation match pinned NeuroKit2 0.2.12. ECG defaults to this method. Choose **Legacy SciPy fallback** only for comparison/reproduction of earlier sessions. The selected/actual processing method is recorded in config, CSV, trial JSON and PDF. Earlier sessions are never rewritten.
+
+Only ECG outputs consumed by HRD are computed: cleaned signal, corrected peak mask, rate curve, mean HR and the runner's HRV diagnostics. NeuroKit's unused quality, P/Q/S/T delineation and phase columns are omitted to keep the implementation lightweight. The task retries when rate is unavailable; it does not reproduce incidental exceptions in these unused Python stages or silently switch algorithms. Live xAMP-L10 / Orbit validation and audio hardware latency measurement remain necessary. Simulation is deterministic 72 BPM input, not the source's random EEG simulator.
 
 Source bugs are corrected: missed responses remain empty rather than becoming “slower”; an unupdated posterior remains unavailable on early catches; Orbit uses the cardiac stream's own sample rate; stream labels/types are respected; stop cancels pending trial work; physiological recording closes before export/report generation. Psi is updated with the **requested delta**, matching the source even when rate quantization/clamping changes the delivered difference.
 
@@ -44,7 +46,7 @@ Source bugs are corrected: missed responses remain empty rather than becoming �
 
 Files follow shared subject/HRD/session naming and the configured export root:
 
-- CSV with all 18 source behavioral columns. Invalid/missing values are empty. Numeric results retain full precision (the source rounded selected fields to one decimal).
+- CSV with all 18 source behavioral columns plus response mode, signed slider position, delivered delta and processing method. Invalid/missing values are empty. Numeric results retain full precision (the source rounded selected fields to one decimal).
 - Session JSON: config, actual source, randomized catch plan, response history, posterior estimates and completed rows. NaNs serialize as null.
 - Per-trial JSON: actual sample timestamps, native sampling rate, raw/cleaned signal, peak mask, rate curve and HRV diagnostics.
 - SVG: both source summary panels (Psi bias/deltas and actual/presented rates).
@@ -59,9 +61,17 @@ CSV/JSON are checkpointed after each completed trial. Stop exports partial trial
 cargo test --manifest-path rust/Cargo.toml --lib
 cargo build --manifest-path rust/Cargo.toml
 python3 tools/validate_hrd.py /path/to/orbit_HRD
+# With test-only NeuroKit2 0.2.12 installed:
+python3 tools/validate_hrd_neurokit.py
 flutter test --no-pub
 bash rust/build_android.sh
 flutter build apk --debug --no-pub
 ```
 
-The development parity script requires NumPy/SciPy and extracts the source algorithms using AST, without importing Pygame/Tk/BLE dependencies. Native FFI tests run when the macOS debug library is available. Android libraries must be regenerated after Rust changes (the tracked libraries have been updated). macOS/Windows use the existing native build/packaging workflow. The local macOS application build currently fails due to Xcode CoreDevice framework mismatch and existing deployment targets below the installed Xcode's minimum; the Rust desktop library and Flutter tests compile independently.
+The development parity script requires NumPy/SciPy and extracts the source algorithms using AST, without importing Pygame/Tk/BLE dependencies. Native FFI tests run when the macOS debug library is available. Android libraries must be regenerated after Rust changes (the tracked libraries have been updated). macOS/Windows use the existing native build/packaging workflow. The latest macOS debug application build succeeds. Xcode still emits a local CoreDevice plug-in warning; it does not prevent this build.
+
+## Response and results update
+
+Choose **Separate choices** for the original faster/slower buttons with optional subsequent confidence, or **Combined slider** to submit direction and confidence together. The slider uses left=slower, right=faster, confidence 1–9; its centre is unselected and Confirm submits. The original buttons keep their existing keyboard mapping. Mode, slider position and delivered delta are appended to behavioral exports; confidence does not weight Psi updates.
+
+The results screen now has labelled interactive charts, plain-language estimates, collapsed file/signal sections and a report button. Read the [port verification and scientific interpretation report](hrd_validation.md) for the real-session audit, corrected HRV diagnostic handling and remaining validity limits.
