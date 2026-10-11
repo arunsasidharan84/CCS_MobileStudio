@@ -14,32 +14,35 @@ import 'package:ccs_mobile_studio/modules/hrd/hrd_report.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('xyz.luan/audioplayers.global'),
+      (_) async => 1,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('xyz.luan/audioplayers.global/events'),
+      (_) async => null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('xyz.luan/audioplayers'),
+      (call) async {
+        if (call.method == 'create') {
+          final id = (call.arguments as Map)['playerId'];
+          messenger.setMockMethodCallHandler(
+            MethodChannel('xyz.luan/audioplayers/events/$id'),
+            (_) async => null,
+          );
+        }
+        return 1;
+      },
+    );
+  });
+
   test(
     'catch and timeout responses checkpoint without updating Psi; valid trial completes',
     () async {
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(
-        const MethodChannel('xyz.luan/audioplayers.global'),
-        (_) async => 1,
-      );
-      messenger.setMockMethodCallHandler(
-        const MethodChannel('xyz.luan/audioplayers.global/events'),
-        (_) async => null,
-      );
-      messenger.setMockMethodCallHandler(
-        const MethodChannel('xyz.luan/audioplayers'),
-        (call) async {
-          if (call.method == 'create') {
-            final id = (call.arguments as Map)['playerId'];
-            messenger.setMockMethodCallHandler(
-              MethodChannel('xyz.luan/audioplayers/events/$id'),
-              (_) async => null,
-            );
-          }
-          return 1;
-        },
-      );
       final folder = await Directory.systemTemp.createTemp('hrd_lifecycle');
       FileNamingService.configureOutputDirectory(folder.path);
       final sessions = SessionManager();
