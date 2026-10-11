@@ -6,11 +6,11 @@ The new **Heart Rate Detection** module ports the runnable `orbit_HRD/ccs_hrd_ui
 
 1. Enter the participant code on the dashboard and connect the hardware.
 2. For Orbit choose PPG, channel `PPG`. For xAMP-L10 configure the desired channel's **type as ECG** in channel settings, then enter its exact label in HRD. An ECG channel may be inside the amplifier's EEG stream.
-3. Set trial count, catches and acquisition duration (defaults: 10 / 2 / 16 seconds). The optional source field uses `deviceProfileId/streamId` and disambiguates simultaneous devices. With it empty, the first matching valid cardiac stream is locked for the run.
+3. Set trial count, catches, acquisition duration, and response timeout (defaults: 10 / 2 / 16 / 8 seconds; timeout range 2–120 seconds). The optional source field uses `deviceProfileId/streamId` and disambiguates simultaneous devices. With it empty, the first matching valid cardiac stream is locked for the run.
 4. Press Start, read the instructions, then Begin. Each trial has 1 second of fixation, fresh acquisition, then feedback. Choose faster with **1 / left arrow** or slower with **0 / right arrow**, or tap the corresponding button. Escape/Close stops and saves partial results.
 5. Signal gaps restart the current collection window. Missing/invalid HR prompts retry rather than fabricating a baseline. Simulation is explicit, labeled DEMO, and never writes hardware EDF.
 
-Auditory feedback reproduces the source pulse waveform and ten-beat playback (two repetitions of its five-beat WAV). Visual mode reproduces the warning bell followed by a rate bar. Response duration is `max(5 * 60 / presentedBPM, 8)` seconds. Confidence 0–9 is an optional 15-second extension, disabled by default because the source UI runner does not collect it.
+Auditory feedback reproduces the source pulse waveform and ten-beat playback (two repetitions of its five-beat WAV). Visual mode reproduces the warning bell followed by a rate bar. Response duration is `max(5 * 60 / presentedBPM, responseTimeoutSeconds)` seconds, accompanied by a live visual countdown indicator (`HrdResponseCountdown`) showing remaining seconds and progress. Confidence 0–9 is an optional extension (also using `responseTimeoutSeconds` with a live countdown), disabled by default because the source UI runner does not collect it.
 
 ## Native computation and footprint
 

@@ -1,5 +1,13 @@
 # Release Notes — CCS Mobile Studio
 
+## Version 1.0.10 (Build 11) — October 2026
+
+### Highlights
+- **Configurable HRD Response Timeout**: Added a configurable `Response timeout (seconds)` parameter (2–120s, default 8s) in the Heart Rate Detection (HRD) setup screen, persisted across sessions and exported in session metadata.
+- **Live Response & Rating Countdown**: Added an on-screen countdown bar and timer (`HrdResponseCountdown`) during HRD user response and confidence rating phases so participants clearly see remaining response time.
+
+---
+
 ## Version 1.0.9 (Build 10) — October 2026
 
 ### Highlights

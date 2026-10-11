@@ -33,6 +33,8 @@ class HrdEngine extends ChangeNotifier {
     required List<Stream<SignalStreamSample>> streams,
   }) {
     config.validate();
+    responseTotalSeconds = config.responseTimeoutSeconds.toDouble();
+    responseRemainingSeconds = responseTotalSeconds;
     catches = hrdCatchPlan(config.trials, config.catchTrials, random);
     for (final stream in streams) {
       subscriptions.add(stream.listen(_sample));
@@ -68,18 +70,56 @@ class HrdEngine extends ChangeNotifier {
   int generation = 0;
   int? response, rating;
   double? rt, sliderPosition;
-  double progress = 0;
+  double progress = 0, responseRemainingSeconds = 0, responseTotalSeconds = 0;
+  double get responseProgress => responseTotalSeconds <= 0
+      ? 0
+      : (responseRemainingSeconds / responseTotalSeconds).clamp(0.0, 1.0);
   String? csvPath;
   Future<void>? pendingWrite, pendingExport;
   int get trial => rows.length + 1;
   void _set(HrdPhase value, String text) {
     if (disposed) return;
-    if (value != HrdPhase.collecting) {
+    if (value != HrdPhase.collecting &&
+        value != HrdPhase.response &&
+        value != HrdPhase.rating) {
       progressTicker?.cancel();
     }
     phase = value;
     message = text;
     notifyListeners();
+  }
+
+  void startResponseCountdown(
+    double durationSeconds,
+    void Function() onTimeout,
+  ) {
+    deadline?.cancel();
+    progressTicker?.cancel();
+    responseTotalSeconds = durationSeconds;
+    responseRemainingSeconds = durationSeconds;
+    final countdownClock = Stopwatch()..start();
+    progressTicker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (disposed ||
+          (phase != HrdPhase.response && phase != HrdPhase.rating)) {
+        progressTicker?.cancel();
+        return;
+      }
+      final elapsed = countdownClock.elapsedMicroseconds / 1e6;
+      responseRemainingSeconds = (durationSeconds - elapsed).clamp(
+        0.0,
+        durationSeconds,
+      );
+      notifyListeners();
+    });
+    deadline = Timer(
+      Duration(microseconds: (durationSeconds * 1e6).round()),
+      () {
+        progressTicker?.cancel();
+        responseRemainingSeconds = 0;
+        if (!disposed) notifyListeners();
+        onTimeout();
+      },
+    );
   }
 
   void _sample(SignalStreamSample s) {
@@ -144,6 +184,8 @@ class HrdEngine extends ChangeNotifier {
     firstSample = null;
     lastSample = null;
     progress = 0;
+    responseTotalSeconds = config.responseTimeoutSeconds.toDouble();
+    responseRemainingSeconds = responseTotalSeconds;
     response = null;
     rating = null;
     rt = null;
@@ -270,7 +312,7 @@ class HrdEngine extends ChangeNotifier {
       peakMask = result['peaks'] as List<double>;
       delta = result['delta'] as double;
       presented = hrdPresentedRate(hr, delta);
-      final seconds = max(5 * 60 / presented, 8.0);
+      final seconds = config.responseTimeoutSeconds.toDouble();
       final snapshot = {
         'trial': trial,
         'source': lockedSource,
@@ -294,10 +336,14 @@ class HrdEngine extends ChangeNotifier {
       paths.add(snapshotPath);
       if (disposed || token != generation) return;
       if (config.audio) {
+        final audioSeconds = min(
+          30.0,
+          max(5 * 60 / presented, seconds) + 1,
+        );
         final sound = await compute(hrdCompute, <String, Object>{
           'history': <List<double>>[],
           'bpm': presented,
-          'seconds': seconds + 1,
+          'seconds': audioSeconds,
         });
         if (disposed || token != generation) return;
         final file = File(
@@ -323,14 +369,13 @@ class HrdEngine extends ChangeNotifier {
       reactionClock
         ..reset()
         ..start();
+      responseTotalSeconds = seconds;
+      responseRemainingSeconds = seconds;
       _set(
         HrdPhase.response,
         'Is the feedback faster or slower than your heart?',
       );
-      deadline = Timer(
-        Duration(microseconds: (seconds * 1e6).round()),
-        () => unawaited(answer(null)),
-      );
+      startResponseCountdown(seconds, () => unawaited(answer(null)));
     } catch (e) {
       if (!disposed && token == generation) {
         await player.stop();
@@ -361,6 +406,7 @@ class HrdEngine extends ChangeNotifier {
     }
     if (phase != HrdPhase.response) return;
     deadline?.cancel();
+    progressTicker?.cancel();
     reactionClock.stop();
     response = value;
     rating = value == null ? null : combinedConfidence;
@@ -376,11 +422,11 @@ class HrdEngine extends ChangeNotifier {
     if (config.responseMode == HrdResponseMode.buttons &&
         config.confidence &&
         value != null) {
+      final ratingSeconds = config.responseTimeoutSeconds.toDouble();
+      responseTotalSeconds = ratingSeconds;
+      responseRemainingSeconds = ratingSeconds;
       _set(HrdPhase.rating, 'How confident are you? 0–9');
-      deadline = Timer(
-        const Duration(seconds: 15),
-        () => unawaited(rate(null)),
-      );
+      startResponseCountdown(ratingSeconds, () => unawaited(rate(null)));
     } else {
       await _finishTrial();
     }
@@ -389,6 +435,7 @@ class HrdEngine extends ChangeNotifier {
   Future<void> rate(int? value) async {
     if (phase != HrdPhase.rating) return;
     deadline?.cancel();
+    progressTicker?.cancel();
     rating = value;
     _set(HrdPhase.processing, 'Saving confidence');
     await _finishTrial();

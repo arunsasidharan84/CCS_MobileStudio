@@ -164,6 +164,66 @@ class HrdJourneyProgress extends StatelessWidget {
   }
 }
 
+class HrdResponseCountdown extends StatelessWidget {
+  const HrdResponseCountdown({
+    super.key,
+    required this.remainingSeconds,
+    required this.totalSeconds,
+  });
+  final double remainingSeconds, totalSeconds;
+  @override
+  Widget build(BuildContext context) {
+    final safeTotal = max(1.0, totalSeconds);
+    final clamped = remainingSeconds.clamp(0.0, safeTotal);
+    final fraction = (clamped / safeTotal).clamp(0.0, 1.0);
+    final urgent = clamped <= 3.0;
+    final color = urgent ? Colors.orangeAccent : _teal;
+    return Card(
+      key: const Key('hrd-response-countdown'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.timer_outlined, color: color, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Time remaining to respond',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+                Text(
+                  '${clamped.ceil()}s (${clamped.toStringAsFixed(1)}s / ${safeTotal.round()}s)',
+                  key: const Key('hrd-response-countdown-label'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              key: const Key('hrd-response-countdown-bar'),
+              value: fraction,
+              color: color,
+              backgroundColor: Colors.white12,
+              minHeight: 6,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class HrdResultsPanel extends StatefulWidget {
   const HrdResultsPanel({
     super.key,

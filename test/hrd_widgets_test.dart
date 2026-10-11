@@ -168,4 +168,25 @@ void main() {
     expect(find.text('50% of this listening window'), findsOneWidget);
     expect(find.textContaining('accuracy'), findsNothing);
   });
+  testWidgets('response countdown shows remaining time and progress bar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: HrdResponseCountdown(
+            remainingSeconds: 6.4,
+            totalSeconds: 10.0,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('hrd-response-countdown')), findsOneWidget);
+    expect(find.text('Time remaining to respond'), findsOneWidget);
+    expect(find.text('7s (6.4s / 10s)'), findsOneWidget);
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byKey(const Key('hrd-response-countdown-bar')),
+    );
+    expect(bar.value, closeTo(0.64, 1e-6));
+  });
 }

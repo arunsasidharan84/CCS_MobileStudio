@@ -9,6 +9,7 @@ class HrdConfig {
     this.trials = 10,
     this.catchTrials = 2,
     this.epochSeconds = 16,
+    this.responseTimeoutSeconds = 8,
     this.ecg = false,
     this.channel = 'PPG',
     this.source = '',
@@ -19,7 +20,7 @@ class HrdConfig {
     this.responseMode = HrdResponseMode.buttons,
     this.ecgMethod = HrdEcgMethod.neurokit,
   });
-  final int trials, catchTrials, epochSeconds;
+  final int trials, catchTrials, epochSeconds, responseTimeoutSeconds;
   final bool ecg, audio, record, confidence, simulation;
   final String channel, source;
   final HrdResponseMode responseMode;
@@ -31,9 +32,11 @@ class HrdConfig {
         catchTrials > trials ||
         epochSeconds < 4 ||
         epochSeconds > 120 ||
+        responseTimeoutSeconds < 2 ||
+        responseTimeoutSeconds > 120 ||
         channel.trim().isEmpty) {
       throw ArgumentError(
-        'Use 1–1000 trials, 0–trial count catches, 4–120 seconds, and a channel label.',
+        'Use 1–1000 trials, 0–trial count catches, 4–120 acquisition seconds, 2–120 response timeout seconds, and a channel label.',
       );
     }
   }
@@ -42,6 +45,7 @@ class HrdConfig {
     'trials': trials,
     'catchTrials': catchTrials,
     'epochSeconds': epochSeconds,
+    'responseTimeoutSeconds': responseTimeoutSeconds,
     'ecg': ecg,
     'channel': channel,
     'source': source,

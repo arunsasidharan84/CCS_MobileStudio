@@ -24,6 +24,7 @@ class _HrdScreenState extends State<HrdScreen> {
   final trials = TextEditingController(text: '10'),
       catches = TextEditingController(text: '2'),
       seconds = TextEditingController(text: '16'),
+      timeout = TextEditingController(text: '8'),
       channel = TextEditingController(text: 'PPG'),
       source = TextEditingController();
   bool ecg = false,
@@ -43,6 +44,7 @@ class _HrdScreenState extends State<HrdScreen> {
     trials.text = '${saved["trials"] ?? 10}';
     catches.text = '${saved["catchTrials"] ?? 2}';
     seconds.text = '${saved["epochSeconds"] ?? 16}';
+    timeout.text = '${saved["responseTimeoutSeconds"] ?? 8}';
     channel.text = saved["channel"] as String? ?? "PPG";
     source.text = saved["source"] as String? ?? "";
     ecg = saved["ecg"] as bool? ?? false;
@@ -60,7 +62,7 @@ class _HrdScreenState extends State<HrdScreen> {
   String? error;
   @override
   void dispose() {
-    for (final c in [trials, catches, seconds, channel, source]) {
+    for (final c in [trials, catches, seconds, timeout, channel, source]) {
       c.dispose();
     }
     super.dispose();
@@ -72,6 +74,7 @@ class _HrdScreenState extends State<HrdScreen> {
         trials: int.parse(trials.text),
         catchTrials: int.parse(catches.text),
         epochSeconds: int.parse(seconds.text),
+        responseTimeoutSeconds: int.parse(timeout.text),
         ecg: ecg,
         channel: channel.text.trim(),
         source: source.text.trim(),
@@ -131,6 +134,7 @@ class _HrdScreenState extends State<HrdScreen> {
         field('Trials', trials, numeric: true),
         field('Catch trials', catches, numeric: true),
         field('Acquisition per trial (seconds)', seconds, numeric: true),
+        field('Response timeout (seconds)', timeout, numeric: true),
         SegmentedButton<bool>(
           segments: const [
             ButtonSegment(value: false, label: Text('Orbit PPG')),
@@ -404,6 +408,14 @@ class _HrdExperimentScreenState extends State<HrdExperimentScreen> {
                   collecting: p == HrdPhase.collecting,
                   fraction: engine.progress,
                 ),
+              if (p == HrdPhase.response || p == HrdPhase.rating) ...[
+                const SizedBox(height: 12),
+                HrdResponseCountdown(
+                  remainingSeconds: engine.responseRemainingSeconds,
+                  totalSeconds: engine.responseTotalSeconds,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (p == HrdPhase.response) ...[
                 if (!widget.config.audio)
                   SizedBox(

@@ -158,6 +158,42 @@ void main() {
       () => const HrdConfig(epochSeconds: 0).validate(),
       throwsArgumentError,
     );
+    expect(
+      () => const HrdConfig(responseTimeoutSeconds: 1).validate(),
+      throwsArgumentError,
+    );
+    expect(
+      () => const HrdConfig(responseTimeoutSeconds: 121).validate(),
+      throwsArgumentError,
+    );
+    expect(const HrdConfig().responseTimeoutSeconds, 8);
+    expect(const HrdConfig(responseTimeoutSeconds: 12).toJson()['responseTimeoutSeconds'], 12);
+  });
+  test('response countdown ticks down and triggers timeout callback', () async {
+    final sessions = SessionManager();
+    final engine = HrdEngine(
+      config: const HrdConfig(trials: 1, catchTrials: 0, responseTimeoutSeconds: 5, record: false),
+      subject: 'S01',
+      sessions: sessions,
+      streams: [],
+    );
+    try {
+      expect(engine.responseTotalSeconds, 5);
+      expect(engine.responseRemainingSeconds, 5);
+      engine.phase = HrdPhase.response;
+      var timedOut = false;
+      engine.startResponseCountdown(0.25, () => timedOut = true);
+      expect(engine.responseTotalSeconds, 0.25);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(engine.responseRemainingSeconds, lessThan(0.25));
+      expect(engine.responseRemainingSeconds, greaterThan(0));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(timedOut, true);
+      expect(engine.responseRemainingSeconds, 0);
+    } finally {
+      engine.dispose();
+      sessions.dispose();
+    }
   });
   test(
     'Rust FFI works through a background isolate for PPG and ECG',
