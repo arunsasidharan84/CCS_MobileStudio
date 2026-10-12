@@ -78,7 +78,7 @@ mv ~/Downloads/CCS\ Mobile\ Studio.app /Applications/
 
 ## About
 
-**CCS Mobile Studio** brings live EEG/fNIRS acquisition, sleep staging, ERP experiments, adaptive cognition tasks, and synchronized stimulation into one unified, subject-session-aware application. Flutter provides a consistent, responsive interface across Android, macOS, and Windows, while a native Rust core handles real-time signal processing, ONNX inference, and standards-compliant EDF writing.
+**CCS Mobile Studio** brings live EEG/fNIRS acquisition, sleep staging, ERP experiments, adaptive cognition tasks, individual resonance breathing, and synchronized stimulation into one unified, subject-session-aware application. Flutter provides a consistent, responsive interface across Android, macOS, and Windows, while a native Rust core handles real-time signal processing, ONNX inference, and standards-compliant EDF writing.
 
 > Enter the participant identifier once, connect the acquisition hardware, and move through the complete study sequence without changing applications or manually reconciling filenames.
 
@@ -92,7 +92,7 @@ The app communicates with hardware over **Bluetooth LE** (EEG amplifiers) and **
 
 | Acquire | Experiment | Analyse & Safeguard |
 | :--- | :--- | :--- |
-| Multi-device EEG, ECG, PPG and fNIRS streaming | Train NIDRA, ANGEL, Conventional ERP, Adaptive WM and HeartSync | Live signal quality, ERP averages and sleep staging |
+| Multi-device EEG, ECG, PPG and fNIRS streaming | Train NIDRA, ANGEL, Conventional ERP, Adaptive WM, HeartSync and Resonance Breathing | Live signal quality, ERP averages and sleep staging |
 | Full-screen configurable waveforms and live markers | Bundled or researcher-supplied visual/audio stimuli | Timestamped, calibrated EDF with reconnect-safe segments |
 | BLE, Bluetooth Classic and LSL profiles | Configurable marker profiles and study ordering | In-app, checksum-verified release updates |
 
@@ -147,7 +147,15 @@ The shared viewing-and-recording engine used by every other module, also availab
 * Causal biquad bandpass filtering (0.5–40 Hz EEG, 1–45 Hz ECG), adaptive R-peak detection, artifact gating, and real-time HEP waveform visualization with SEM.
 * Deterministic midpoint-RR pseudotrial control comparison and session JSON export. See [HEP documentation](docs/hep.md) for signal pipeline details and scientific considerations.
 
-### 9. Sleepiness Scale
+### 9. Individual Resonance Breathing
+* **Orbit PPG / xAMP-L10 ECG**: Guided adult assessment using a conventional rate sweep or an experimental Psi-inspired adaptive design. The latter chooses each next rate to reduce uncertainty about the optimal breathing pace while marginalizing response height and width.
+* **Configurable protocols**: Expand **Assessment parameters** to edit settling/measurement/rest/practice duration, pace range and steps, inhale fraction, trial limits, credible-width target, uncertainty, quality thresholds and confirmation ratios. Parameters are validated, persisted and exported.
+* **Participant experience**: Animated pacer without holds, live cardiac interval trace, signal-quality checks, comfort feedback, fresh confirmation and practice. Methods, equations and linked scientific references are available directly in the module.
+* **Auditable output**: Subject-aware JSON plus raw cardiac and interval CSVs, including partial sessions and rejected epochs.
+* **Research scope**: No respiration sensor or baroreflex measurement; results are provisional cardiac-response candidates. Adaptive validity and human repeatability require independent evaluation.
+* See [setup, parameter ranges, logic and scientific references](docs/resonance_breathing.md).
+
+### 10. Sleepiness Scale
 * Standalone Stanford Sleepiness Scale (SSS) assessment, intentionally decoupled from ANGEL/WM so it can be administered at any point in a protocol — before a nap, after a task block, at the start or end of a session — without being tied to a specific task module.
 
 ---

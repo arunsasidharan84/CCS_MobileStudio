@@ -139,6 +139,7 @@ class SettingsService extends ChangeNotifier {
     ModuleType.heartsync,
     ModuleType.hrd,
     ModuleType.hep,
+    ModuleType.resonance,
   ];
 
   // ── Paradigm defaults ─────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ class SettingsService extends ChangeNotifier {
   bool wmRecordEeg = true;
 
   Map<String, dynamic> hrdSettings = {};
+  Map<String, dynamic> resonanceSettings = {};
 
   int heartSyncTotalStimuli = 100;
   double heartSyncRareProportion = 0.2;
@@ -307,6 +309,10 @@ class SettingsService extends ChangeNotifier {
       angelAudioInstructionsEnabled =
           (json['angelAudioInstructionsEnabled'] as bool?) ?? true;
       studySequence = _parseStudySequence(json['studySequence']);
+      if (!json.containsKey('resonanceSettings') &&
+          !studySequence.contains(ModuleType.resonance)) {
+        studySequence.add(ModuleType.resonance);
+      }
       if (!studySequence.contains(ModuleType.hep)) {
         studySequence.add(ModuleType.hep);
       }
@@ -467,6 +473,7 @@ class SettingsService extends ChangeNotifier {
     'heartSyncShowLiveWaveform': heartSyncShowLiveWaveform,
     'heartSyncWaveformSeconds': heartSyncWaveformSeconds,
     'hrdSettings': hrdSettings,
+    'resonanceSettings': resonanceSettings,
     'heartSyncChannelName': heartSyncChannelName,
     'heartSyncStimulusMode': heartSyncStimulusMode,
     'heartSyncFrequentToneHz': heartSyncFrequentToneHz,
@@ -678,6 +685,10 @@ class SettingsService extends ChangeNotifier {
         (json['angelAudioInstructionsEnabled'] as bool?) ??
         angelAudioInstructionsEnabled;
     studySequence = _parseStudySequence(json['studySequence']);
+    if (!json.containsKey('resonanceSettings') &&
+        !studySequence.contains(ModuleType.resonance)) {
+      studySequence.add(ModuleType.resonance);
+    }
     if (!studySequence.contains(ModuleType.hep)) {
       studySequence.add(ModuleType.hep);
     }
@@ -988,6 +999,9 @@ class SettingsService extends ChangeNotifier {
         (json['heartSyncWaveformSeconds'] as num?)?.toDouble() ??
         heartSyncWaveformSeconds;
     hrdSettings = Map<String, dynamic>.from(json['hrdSettings'] as Map? ?? {});
+    resonanceSettings = Map<String, dynamic>.from(
+      json['resonanceSettings'] as Map? ?? {},
+    );
     heartSyncChannelName =
         (json['heartSyncChannelName'] as String?) ?? heartSyncChannelName;
     heartSyncStimulusMode =
@@ -1194,6 +1208,7 @@ class SettingsService extends ChangeNotifier {
             ModuleType.heartsync,
             ModuleType.hrd,
             ModuleType.hep,
+            ModuleType.resonance,
           ]
         : parsed;
   }
@@ -1209,6 +1224,7 @@ class SettingsService extends ChangeNotifier {
             ModuleType.heartsync,
             ModuleType.hrd,
             ModuleType.hep,
+            ModuleType.resonance,
           ]
         : List<ModuleType>.from(modules);
     notifyListeners();

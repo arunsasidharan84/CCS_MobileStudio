@@ -7,6 +7,7 @@ enum ModuleType {
   heartsync,
   hrd,
   hep,
+  resonance,
   standalone,
   sleepiness;
 
@@ -19,6 +20,7 @@ enum ModuleType {
     ModuleType.heartsync => 'HEARTSYNC',
     ModuleType.hrd => 'HRD',
     ModuleType.hep => 'HEP',
+    ModuleType.resonance => 'RESONANCE',
     ModuleType.standalone => 'EEG',
     ModuleType.sleepiness => 'SSS',
   };
@@ -32,6 +34,7 @@ enum ModuleType {
     ModuleType.heartsync => 'HeartSync',
     ModuleType.hrd => 'Heart Rate Detection',
     ModuleType.hep => 'Heartbeat Evoked Potential',
+    ModuleType.resonance => 'Resonance Breathing',
     ModuleType.standalone => 'EEG Recorder',
     ModuleType.sleepiness => 'Sleepiness Scale',
   };

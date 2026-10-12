@@ -1,5 +1,41 @@
 # Release Notes — CCS Mobile Studio
 
+## Version 1.0.11 (Build 12) — 12 October 2026
+
+### Highlights
+- **Individual Resonance Breathing**: New adult assessment and practice module for Orbit PPG or xAMP-L10 ECG, accessible from the study run sequence.
+- **Two assessment methods**: Conventional descending rate sweep and an experimental Psi-inspired Bayesian adaptive design that selects the next rate using expected marginal information gain.
+- **Editable research parameters**: Timing, breathing-rate range, conventional/adaptive steps, inhale/exhale balance, adaptive stopping rules, observation/planning uncertainty, quality gates and confirmation ratios. Units, bounds and cross-field validation appear in setup; settings persist and accompany exports.
+- **Methods and scientific references in the app**: Expandable numerical logic and source citations with links, explaining which choices come from the literature and which are engineering adaptations.
+
+### Detailed changes
+
+#### Assessment, confirmation and practice
+- Defaults: five conventional rates (6.5, 6.0, 5.5, 5.0, 4.5 breaths/min), 30-second settling, 120-second measurement and 30-second rests. Rest can be extended to two minutes; the default abbreviated sweep takes approximately 14.5 minutes before confirmation, feedback and retries.
+- Adaptive defaults: 0.1 breaths/min grid, broad initial coverage, 5–8 accepted epochs and a 0.4 breaths/min model-based 95% credible-width stopping target. The estimator marginalizes response height and width rather than reusing the HRD psychometric likelihood.
+- Animated breathing circle with editable inhale fraction, no breath holds, uninterrupted phase across settling/measurement, live interval trace and cardiac-rate feedback.
+- Participant comfort/adherence feedback before accepting an epoch. Poor-quality or uncomfortable epochs do not advance the assessment or update the posterior.
+- Fresh confirmation epoch using a documented amplitude repeatability heuristic before optional practice (default five minutes).
+- Boundary candidates remain visibly provisional; custom rate ranges are adult research settings, not pediatric protocols.
+
+#### Signal processing and data integrity
+- Primary or additional directly connected Orbit/xAMP streams are supported. ECG selection requires the configured channel label and actual ECG channel type; no fallback to EEG channel zero. Stream identity is locked.
+- Reuses the shared causal HeartSync detector with modality-specific filters. Timestamp gaps, stale signal and sample-rate changes interrupt acquisition rather than splice invalid epochs.
+- Fits an offset, linear drift and sinusoid directly to irregular cardiac interval midpoint times. Ranks fitted semi-amplitude, reports partial R² against a linear-trend null, and retains descriptive SDNN/RMSSD.
+- Configurable gates for clean intervals, cycle count, accepted fraction, coverage, amplitude and fit, with conservative default interval rejection and log-response uncertainty.
+- JSON exports preserve configuration, source, epoch metrics, comfort decisions, posterior probabilities, candidate/confirmation state and phase events. Companion CSVs contain raw selected cardiac samples and detected/rejected intervals.
+- Stop, back navigation and background transitions preserve partial-session exports; export failures remain visible and retryable.
+
+#### Documentation, distribution and validation
+- README and dedicated resonance-breathing protocol documentation include setup, algorithm details, parameter units, limitations and primary references.
+- GitHub release workflow publishes the detailed current-version notes and SHA-256 checksums alongside macOS, Windows and Android artifacts.
+- Deterministic tests cover drift-resistant sinusoidal analysis, quality rejection, simulated optimum recovery, strict mixed-channel routing, confirmation, editable configuration and responsive setup UI.
+
+### Scientific limitations
+This is a research implementation. Actual respiration, heart–respiration phase and baroreflex gain are not measured. PPG pulse variability and ECG RR variability are distinct. Adaptive credible intervals depend on a stable unimodal response model; quality thresholds and confirmation ratios are engineering choices. Live hardware accuracy, clinical validity and human test–retest reliability remain unverified. See [full protocol and references](docs/resonance_breathing.md).
+
+---
+
 ## Version 1.0.10 (Build 11) — October 2026
 
 ### Highlights

@@ -232,10 +232,14 @@ jobs:
         run: |
           PACKAGE_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
           TAG="v${PACKAGE_VERSION}"
+          awk '/^## Version / { if (seen) exit; seen=1 } seen { print }' \
+            RELEASE_NOTES.md > "$RUNNER_TEMP/release-notes.md"
+          (cd release-assets && sha256sum CCSMobileStudio-* > SHA256SUMS.txt)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           else
             gh release create "$TAG" release-assets/* \
               --title "CCS Mobile Studio ${PACKAGE_VERSION}" \
-              --generate-notes
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
