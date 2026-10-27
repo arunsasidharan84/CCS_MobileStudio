@@ -9,13 +9,11 @@ DynamicLibrary _library() {
   if (Platform.isIOS) return DynamicLibrary.process();
   if (Platform.isMacOS) {
     final folder = File(Platform.resolvedExecutable).parent.parent.path;
-    try {
-      return DynamicLibrary.open(
-        '$folder/Frameworks/libtrain_nidra_core.dylib',
-      );
-    } catch (_) {
-      return DynamicLibrary.open('rust/target/debug/libtrain_nidra_core.dylib');
+    final bundled = File('$folder/Frameworks/libtrain_nidra_core.dylib');
+    if (bundled.existsSync()) {
+      return DynamicLibrary.open(bundled.path);
     }
+    return DynamicLibrary.open('rust/target/debug/libtrain_nidra_core.dylib');
   }
   return DynamicLibrary.open('rust/target/debug/libtrain_nidra_core.so');
 }

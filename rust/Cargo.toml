@@ -10,3 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 chrono = "0.4.45"
 tract-onnx = "0.21"
+
+[profile.release]
+strip = "none"
+

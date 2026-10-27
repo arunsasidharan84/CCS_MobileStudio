@@ -245,14 +245,13 @@ class NativeCore {
         '${executableDirectory.parent.path}/Frameworks/'
         'libtrain_nidra_core.dylib',
       );
-      try {
+      if (bundledLibrary.existsSync()) {
         return DynamicLibrary.open(bundledLibrary.path);
-      } catch (_) {
-        // Keep command-line and local debug execution convenient.
-        return DynamicLibrary.open(
-          'rust/target/debug/libtrain_nidra_core.dylib',
-        );
       }
+      // Keep command-line and local debug execution convenient.
+      return DynamicLibrary.open(
+        'rust/target/debug/libtrain_nidra_core.dylib',
+      );
     }
     if (Platform.isIOS) return DynamicLibrary.process();
     if (Platform.isWindows) {
