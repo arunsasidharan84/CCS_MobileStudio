@@ -198,6 +198,37 @@ void main() {
       sessions.dispose();
     }
   });
+
+  test('confidence summary computes calibration metrics and handles empty ratings', () {
+    expect(HrdConfidenceSummary.compute([]), isNull);
+    expect(HrdConfidenceSummary.compute([{'SubjRating': null}]), isNull);
+
+    final rows = <Map<String, Object?>>[
+      // Catch trial: correct, confidence 8
+      {'Trial': 1, 'TrialType': 'catch', 'SubjRating': 8, 'SubjAccuracy': 1},
+      // Adaptive trial 1: correct, confidence 7
+      {'Trial': 2, 'TrialType': 'psi', 'SubjRating': 7, 'SubjAccuracy': 1},
+      // Adaptive trial 2: incorrect, confidence 4
+      {'Trial': 3, 'TrialType': 'psi', 'SubjRating': 4, 'SubjAccuracy': 0},
+      // Adaptive trial 3: missed, no rating
+      {'Trial': 4, 'TrialType': 'psi', 'SubjRating': null, 'SubjAccuracy': null},
+    ];
+
+    final summary = HrdConfidenceSummary.compute(rows)!;
+    expect(summary.count, 3);
+    expect(summary.meanConfidence, closeTo(19 / 3, 1e-6));
+    expect(summary.correctMean, closeTo(7.5, 1e-6));
+    expect(summary.incorrectMean, closeTo(4.0, 1e-6));
+    expect(summary.metacognitiveDelta, closeTo(3.5, 1e-6));
+    expect(summary.catchMean, closeTo(8.0, 1e-6));
+    expect(summary.adaptiveMean, closeTo(5.5, 1e-6));
+    expect(summary.accuracy, closeTo(2 / 3, 1e-6));
+
+    final json = summary.toJson();
+    expect(json['count'], 3);
+    expect(json['metacognitiveDelta'], closeTo(3.5, 1e-6));
+  });
+
   test(
     'Rust FFI works through a background isolate for PPG and ECG',
     () async {

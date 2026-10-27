@@ -120,3 +120,91 @@ class HrdSliderAnswer {
   int get response => position > 0 ? 1 : 0;
   int get confidence => position.abs().round().clamp(1, 9);
 }
+
+/// Aggregated confidence metrics and interoceptive metacognitive calibration.
+class HrdConfidenceSummary {
+  const HrdConfidenceSummary({
+    required this.count,
+    required this.meanConfidence,
+    this.correctMean,
+    this.incorrectMean,
+    this.metacognitiveDelta,
+    this.catchMean,
+    this.adaptiveMean,
+    this.accuracy,
+  });
+
+  final int count;
+  final double meanConfidence;
+  final double? correctMean;
+  final double? incorrectMean;
+  final double? metacognitiveDelta;
+  final double? catchMean;
+  final double? adaptiveMean;
+  final double? accuracy;
+
+  Map<String, Object?> toJson() => {
+    'count': count,
+    'meanConfidence': meanConfidence,
+    'correctMean': correctMean,
+    'incorrectMean': incorrectMean,
+    'metacognitiveDelta': metacognitiveDelta,
+    'catchMean': catchMean,
+    'adaptiveMean': adaptiveMean,
+    'accuracy': accuracy,
+  };
+
+  static HrdConfidenceSummary? compute(List<Map<String, Object?>> rows) {
+    final rated = rows.where((r) => r['SubjRating'] is num).toList();
+    if (rated.isEmpty) return null;
+    final ratings =
+        rated.map((r) => (r['SubjRating'] as num).toDouble()).toList();
+    final mean = ratings.reduce((a, b) => a + b) / ratings.length;
+    final correct = rated
+        .where((r) => r['SubjAccuracy'] == 1)
+        .map((r) => (r['SubjRating'] as num).toDouble())
+        .toList();
+    final incorrect = rated
+        .where((r) => r['SubjAccuracy'] == 0)
+        .map((r) => (r['SubjRating'] as num).toDouble())
+        .toList();
+    final correctMean = correct.isEmpty
+        ? null
+        : correct.reduce((a, b) => a + b) / correct.length;
+    final incorrectMean = incorrect.isEmpty
+        ? null
+        : incorrect.reduce((a, b) => a + b) / incorrect.length;
+    final delta = (correctMean != null && incorrectMean != null)
+        ? correctMean - incorrectMean
+        : null;
+    final catches = rated
+        .where((r) => r['TrialType'] == 'catch')
+        .map((r) => (r['SubjRating'] as num).toDouble())
+        .toList();
+    final adaptive = rated
+        .where((r) => r['TrialType'] == 'psi')
+        .map((r) => (r['SubjRating'] as num).toDouble())
+        .toList();
+    final catchMean = catches.isEmpty
+        ? null
+        : catches.reduce((a, b) => a + b) / catches.length;
+    final adaptiveMean = adaptive.isEmpty
+        ? null
+        : adaptive.reduce((a, b) => a + b) / adaptive.length;
+    final scored = rated.where((r) => r['SubjAccuracy'] is num).toList();
+    final accuracy = scored.isEmpty
+        ? null
+        : scored.where((r) => r['SubjAccuracy'] == 1).length / scored.length;
+    return HrdConfidenceSummary(
+      count: rated.length,
+      meanConfidence: mean,
+      correctMean: correctMean,
+      incorrectMean: incorrectMean,
+      metacognitiveDelta: delta,
+      catchMean: catchMean,
+      adaptiveMean: adaptiveMean,
+      accuracy: accuracy,
+    );
+  }
+}
+

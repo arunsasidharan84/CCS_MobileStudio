@@ -74,4 +74,11 @@ The development parity script requires NumPy/SciPy and extracts the source algor
 
 Choose **Separate choices** for the original faster/slower buttons with optional subsequent confidence, or **Combined slider** to submit direction and confidence together. The slider uses left=slower, right=faster, confidence 1–9; its centre is unselected and Confirm submits. The original buttons keep their existing keyboard mapping. Mode, slider position and delivered delta are appended to behavioral exports; confidence does not weight Psi updates.
 
+When confidence ratings are collected, results incorporate a dedicated **Confidence & Metacognitive Insight** analysis based on the Garfinkel et al. (2015) interoception framework:
+- **Interoceptive Sensibility**: Mean confidence rating across rated trials.
+- **Interoceptive Metacognition (Calibration)**: Difference in confidence between objectively correct and incorrect judgments ($\Delta\text{Confidence} = \bar{C}_{\text{correct}} - \bar{C}_{\text{incorrect}}$), indicating whether subjective certainty appropriately tracks discrimination accuracy.
+- **Difficulty Comparison**: Confidence on catch trials (large $\pm 10..\pm 40$ BPM differences) vs. adaptive trials (near psychophysical discrimination threshold).
+- **Interactive Confidence Chart**: Toggleable 'Confidence' view in the results panel displaying per-round confidence stems, correctness color coding (green=correct, amber=incorrect, purple=catch), and dashed mean-confidence reference guide.
+- **Export Integration**: Structured confidence summary serialized in session JSON and documented on Page 1 of the session PDF report.
+
 The results screen now has labelled interactive charts, plain-language estimates, collapsed file/signal sections and a report button. Read the [port verification and scientific interpretation report](hrd_validation.md) for the real-session audit, corrected HRV diagnostic handling and remaining validity limits.

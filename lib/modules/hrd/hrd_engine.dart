@@ -531,6 +531,7 @@ class HrdEngine extends ChangeNotifier {
           'catchPlan': catches,
           'estimate': estimate,
           'trials': rows,
+          'confidenceSummary': HrdConfidenceSummary.compute(rows)?.toJson(),
           'complete': rows.length == config.trials,
         }),
       ),

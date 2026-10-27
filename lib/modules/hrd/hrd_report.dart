@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:ccs_mobile_studio/modules/hrd/hrd_models.dart';
 
 Future<List<String>> writeHrdReportRequest(Map<String, Object> request) =>
     writeHrdReport(
@@ -21,6 +22,7 @@ Future<List<String>> writeHrdReport(
 ) async {
   if (rows.isEmpty) return [];
   final doc = pw.Document();
+  final conf = HrdConfidenceSummary.compute(rows);
   final summary = hrdSummarySvg(rows);
   final svgPath = csvPath.replaceFirst('.csv', '_summary.svg');
   await File(svgPath).writeAsString(summary, flush: true);
@@ -39,10 +41,45 @@ Future<List<String>> writeHrdReport(
           ),
           pw.SizedBox(height: 20),
           pw.SvgImage(svg: summary),
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 12),
           pw.Text(
             'Missed responses and catch trials do not update the posterior. Bounds reproduce the source definition (mean +/- SD/2); they are not a credible interval.',
           ),
+          if (conf != null) ...[
+            pw.SizedBox(height: 14),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                border: pw.Border.all(color: PdfColors.grey400),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Subjective Confidence & Metacognitive Insight',
+                    style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'Mean confidence: ${conf.meanConfidence.toStringAsFixed(1)} / 9   |   Rated trials: ${conf.count}${conf.accuracy != null ? '   |   Accuracy: ${(conf.accuracy! * 100).toStringAsFixed(1)}%' : ''}',
+                  ),
+                  if (conf.correctMean != null || conf.incorrectMean != null)
+                    pw.Text(
+                      'Confidence when correct: ${conf.correctMean?.toStringAsFixed(1) ?? "NA"}   |   Confidence when incorrect: ${conf.incorrectMean?.toStringAsFixed(1) ?? "NA"}   |   Metacognitive delta: ${conf.metacognitiveDelta != null ? "${conf.metacognitiveDelta! >= 0 ? '+' : ''}${conf.metacognitiveDelta!.toStringAsFixed(2)}" : "NA"}',
+                    ),
+                  if (conf.catchMean != null || conf.adaptiveMean != null)
+                    pw.Text(
+                      'Catch confidence (large delta): ${conf.catchMean?.toStringAsFixed(1) ?? "NA"}   |   Adaptive confidence (near threshold): ${conf.adaptiveMean?.toStringAsFixed(1) ?? "NA"}',
+                    ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     ),
@@ -85,7 +122,7 @@ Future<List<String>> writeHrdReport(
                   ? 'Timeout'
                   : row['SubjResponse'] == 1
                   ? 'Faster'
-                  : 'Slower'}\nResponse time: ${row['ResponseTime'] ?? 'NA'} seconds\nConfidence: ${row['SubjRating'] ?? 'NA'}\nResponse mode: ${row['ResponseMode'] ?? 'buttons (legacy)'}\nDetected peaks: ${stats[4]}\nRobust HR MAD: ${stats[1]}\nHRV score: ${stats[2]}\nSample entropy: ${stats[3]}',
+                  : 'Slower'}\nObjective accuracy: ${row['SubjAccuracy'] == null ? 'NA' : row['SubjAccuracy'] == 1 ? 'Correct' : 'Incorrect'}\nResponse time: ${row['ResponseTime'] ?? 'NA'} seconds\nConfidence: ${row['SubjRating'] ?? 'NA'}\nResponse mode: ${row['ResponseMode'] ?? 'buttons (legacy)'}\nDetected peaks: ${stats[4]}\nRobust HR MAD: ${stats[1]}\nHRV score: ${stats[2]}\nSample entropy: ${stats[3]}',
             ),
             pw.SizedBox(height: 20),
             pw.Text(

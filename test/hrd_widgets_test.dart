@@ -129,6 +129,7 @@ void main() {
           image.dispose();
         });
       }
+      expect(find.text('Confidence & Metacognitive Insight'), findsOneWidget);
       await tester.tap(find.text('Heart & feedback'));
       await tester.pumpAndSettle();
       expect(
@@ -140,9 +141,13 @@ void main() {
       final chart = find.byWidgetPredicate(
         (w) => w is CustomPaint && w.painter is HrdAccessibleChart,
       );
-      await tester.tapAt(tester.getCenter(chart));
-      await tester.pump();
+      await tester.scrollUntilVisible(chart, 200, scrollable: find.byType(Scrollable).first);
+      await tester.tap(chart);
+      await tester.pumpAndSettle();
       expect(find.textContaining('Requested difference'), findsOneWidget);
+      await tester.tap(find.text('Confidence'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Self-reported confidence'), findsOneWidget);
       await show(const Size(390, 1100));
       expect(tester.takeException(), isNull);
     },

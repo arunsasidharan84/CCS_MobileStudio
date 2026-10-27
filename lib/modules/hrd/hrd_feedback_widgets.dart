@@ -224,6 +224,12 @@ class HrdResponseCountdown extends StatelessWidget {
   }
 }
 
+enum HrdChartMode {
+  rateDifference,
+  heartAndFeedback,
+  confidence,
+}
+
 class HrdResultsPanel extends StatefulWidget {
   const HrdResultsPanel({
     super.key,
@@ -241,7 +247,7 @@ class HrdResultsPanel extends StatefulWidget {
 }
 
 class _HrdResultsPanelState extends State<HrdResultsPanel> {
-  bool rates = false;
+  HrdChartMode chartMode = HrdChartMode.rateDifference;
   int? selected;
   @override
   Widget build(BuildContext context) {
@@ -253,6 +259,7 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
     final e = widget.estimate;
     final bias = e.isNotEmpty && e.first.isFinite ? e.first : null;
     final pdf = widget.paths.where((p) => p.endsWith('.pdf')).firstOrNull;
+    final conf = HrdConfidenceSummary.compute(rows);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -299,6 +306,16 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
                           ? e[3].toStringAsFixed(2)
                           : 'Not available',
                     ),
+                    if (conf != null)
+                      _metric(
+                        'Mean confidence',
+                        '${conf.meanConfidence.toStringAsFixed(1)} / 9',
+                      ),
+                    if (conf != null && conf.metacognitiveDelta != null)
+                      _metric(
+                        'Metacognitive insight',
+                        '${conf.metacognitiveDelta! >= 0 ? '+' : ''}${conf.metacognitiveDelta!.toStringAsFixed(1)}',
+                      ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -320,6 +337,86 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
             ),
           ),
         ),
+        if (conf != null) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.psychology_outlined, color: _teal, size: 26),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Confidence & Metacognitive Insight',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Subjective confidence reflects interoceptive sensibility. Metacognitive calibration assesses whether certainty increases on objectively correct decisions.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 28,
+                    runSpacing: 12,
+                    children: [
+                      _metric(
+                        'Rated rounds',
+                        '${conf.count} of ${rows.length}',
+                      ),
+                      if (conf.correctMean != null)
+                        _metric(
+                          'When correct',
+                          '${conf.correctMean!.toStringAsFixed(1)} / 9',
+                        ),
+                      if (conf.incorrectMean != null)
+                        _metric(
+                          'When incorrect',
+                          '${conf.incorrectMean!.toStringAsFixed(1)} / 9',
+                        ),
+                      if (conf.metacognitiveDelta != null)
+                        _metric(
+                          'Insight (Δ)',
+                          '${conf.metacognitiveDelta! >= 0 ? '+' : ''}${conf.metacognitiveDelta!.toStringAsFixed(2)}',
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (conf.catchMean != null || conf.adaptiveMean != null)
+                    Text(
+                      'Catch trials: ${conf.catchMean?.toStringAsFixed(1) ?? 'NA'} / 9  •  Adaptive trials: ${conf.adaptiveMean?.toStringAsFixed(1) ?? 'NA'} / 9'
+                      '${conf.accuracy != null ? "  •  Accuracy: ${(conf.accuracy! * 100).toStringAsFixed(0)}%" : ""}',
+                      style: const TextStyle(color: Colors.white60),
+                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                    conf.metacognitiveDelta == null
+                        ? 'All evaluated rounds had uniform accuracy; calibration requires both correct and incorrect responses.'
+                        : conf.metacognitiveDelta! > 0.3
+                        ? 'Positive calibration: You expressed higher certainty on rounds where your discrimination was objectively correct.'
+                        : conf.metacognitiveDelta! < -0.3
+                        ? 'Negative calibration: You expressed higher certainty on rounds where your discrimination was mistaken.'
+                        : 'Neutral calibration: Confidence was balanced across correct and incorrect judgments.',
+                    style: const TextStyle(
+                      fontStyle: FontStyle.italic,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Card(
           child: Padding(
@@ -332,20 +429,36 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('Rate difference')),
-                    ButtonSegment(value: true, label: Text('Heart & feedback')),
-                  ],
-                  selected: {rates},
-                  onSelectionChanged: (v) => setState(() {
-                    rates = v.first;
-                    selected = null;
-                  }),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<HrdChartMode>(
+                    segments: [
+                      const ButtonSegment(
+                        value: HrdChartMode.rateDifference,
+                        label: Text('Rate difference'),
+                      ),
+                      const ButtonSegment(
+                        value: HrdChartMode.heartAndFeedback,
+                        label: Text('Heart & feedback'),
+                      ),
+                      if (conf != null)
+                        const ButtonSegment(
+                          value: HrdChartMode.confidence,
+                          label: Text('Confidence'),
+                        ),
+                    ],
+                    selected: {chartMode},
+                    onSelectionChanged: (v) => setState(() {
+                      chartMode = v.first;
+                      selected = null;
+                    }),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  rates
+                  chartMode == HrdChartMode.confidence
+                      ? 'Self-reported confidence (0–9) across rounds. Green: correct; Amber: incorrect; Purple: catch. Dashed teal line shows mean confidence.'
+                      : chartMode == HrdChartMode.heartAndFeedback
                       ? 'Compare the measured heart rate with the feedback rate on each round.'
                       : 'Above zero: feedback faster than measured HR. Below zero: slower. Teal shows the evolving model offset.',
                 ),
@@ -367,9 +480,10 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
                       child: CustomPaint(
                         painter: HrdAccessibleChart(
                           rows,
-                          rates,
+                          chartMode,
                           selected,
                           labelStyle: Theme.of(context).textTheme.bodySmall,
+                          confidenceSummary: conf,
                         ),
                       ),
                     ),
@@ -378,20 +492,36 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
                 Wrap(
                   spacing: 16,
                   runSpacing: 8,
-                  children: [
-                    _legend(Colors.redAccent, 'Answered faster'),
-                    _legend(Colors.blueAccent, 'Answered slower'),
-                    _legend(Colors.grey, 'Catch (diamond)'),
-                    _legend(Colors.white54, 'Missed (outline)'),
-                    _legend(
-                      _teal,
-                      rates ? 'Measured HR' : 'Model offset ± SD/2',
-                    ),
-                  ],
+                  children: chartMode == HrdChartMode.confidence
+                      ? [
+                          _legend(Colors.greenAccent, 'Correct rating'),
+                          _legend(Colors.amberAccent, 'Incorrect rating'),
+                          _legend(Colors.purpleAccent, 'Catch trial'),
+                          if (conf != null)
+                            _legend(
+                              _teal,
+                              'Mean (${conf.meanConfidence.toStringAsFixed(1)})',
+                            ),
+                          _legend(Colors.white54, 'Unrated / missed'),
+                        ]
+                      : [
+                          _legend(Colors.redAccent, 'Answered faster'),
+                          _legend(Colors.blueAccent, 'Answered slower'),
+                          _legend(Colors.grey, 'Catch (diamond)'),
+                          _legend(Colors.white54, 'Missed (outline)'),
+                          _legend(
+                            _teal,
+                            chartMode == HrdChartMode.heartAndFeedback
+                                ? 'Measured HR'
+                                : 'Model offset ± SD/2',
+                          ),
+                        ],
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  rates
+                  chartMode == HrdChartMode.confidence
+                      ? 'Confidence 0–9 indicates subjective certainty. Tap a round for its detailed metrics.'
+                      : chartMode == HrdChartMode.heartAndFeedback
                       ? 'Tap a round for its measured and feedback rates.'
                       : 'The SD/2 band reproduces the source task. It is not a 95% credible interval. Tap a round for details.',
                   style: const TextStyle(color: Colors.white60),
@@ -466,15 +596,22 @@ class _HrdResultsPanelState extends State<HrdResultsPanel> {
           ? 'missed'
           : r['SubjResponse'] == 1
           ? 'faster'
-          : 'slower'} • Confidence ${r['SubjRating'] ?? 'not collected'}';
+          : 'slower'}${r['SubjAccuracy'] != null ? " • Objective ${r['SubjAccuracy'] == 1 ? 'correct' : 'incorrect'}" : ""}\nConfidence ${r['SubjRating'] ?? 'not collected'}${r['ResponseTime'] != null ? " • Response time ${(r['ResponseTime'] as num).toStringAsFixed(2)}s" : ""}';
 }
 
 class HrdAccessibleChart extends CustomPainter {
-  HrdAccessibleChart(this.rows, this.rates, this.selected, {this.labelStyle});
+  HrdAccessibleChart(
+    this.rows,
+    this.mode,
+    this.selected, {
+    this.labelStyle,
+    this.confidenceSummary,
+  });
   final TextStyle? labelStyle;
   final List<Map<String, Object?>> rows;
-  final bool rates;
+  final HrdChartMode mode;
   final int? selected;
+  final HrdConfidenceSummary? confidenceSummary;
   void label(
     Canvas c,
     String text,
@@ -502,6 +639,106 @@ class HrdAccessibleChart extends CustomPainter {
     }
     const left = 55.0, top = 25.0;
     final bottom = s.height - 38, right = s.width - 20;
+
+    if (mode == HrdChartMode.confidence) {
+      const minY = 0.0, maxY = 10.0;
+      double y(double v) =>
+          bottom - (v - minY) / (maxY - minY) * (bottom - top);
+      double x(int i) => left + (right - left) * (i + 0.5) / rows.length;
+
+      for (final tick in [0, 3, 6, 9]) {
+        final yy = y(tick.toDouble());
+        c.drawLine(
+          Offset(left, yy),
+          Offset(right, yy),
+          Paint()..color = Colors.white12,
+        );
+        label(c, '$tick', Offset(25, yy - 6));
+      }
+      label(c, 'Confidence (0–9)', const Offset(5, 2));
+      label(c, 'Round', Offset(s.width / 2 - 15, s.height - 14));
+
+      if (confidenceSummary != null) {
+        final meanY = y(confidenceSummary!.meanConfidence);
+        final dashPaint = Paint()
+          ..color = _teal.withValues(alpha: 0.7)
+          ..strokeWidth = 1.5;
+        for (double dx = left; dx < right; dx += 8) {
+          c.drawLine(
+            Offset(dx, meanY),
+            Offset(min(right, dx + 4), meanY),
+            dashPaint,
+          );
+        }
+        label(
+          c,
+          'Mean: ${confidenceSummary!.meanConfidence.toStringAsFixed(1)}',
+          Offset(right - 65, meanY - 14),
+          color: _teal,
+        );
+      }
+
+      for (var i = 0; i < rows.length; i++) {
+        final r = rows[i], xx = x(i);
+        if (i == selected) {
+          c.drawRect(
+            Rect.fromLTWH(
+              xx - (right - left) / rows.length / 2,
+              top,
+              (right - left) / rows.length,
+              bottom - top,
+            ),
+            Paint()..color = _teal.withValues(alpha: 0.08),
+          );
+        }
+        final rating = r['SubjRating'];
+        if (rating is num) {
+          final yy = y(rating.toDouble());
+          c.drawLine(
+            Offset(xx, y(0)),
+            Offset(xx, yy),
+            Paint()
+              ..color = Colors.white24
+              ..strokeWidth = 1.5,
+          );
+          final color = r['TrialType'] == 'catch'
+              ? Colors.purpleAccent
+              : r['SubjAccuracy'] == 1
+              ? Colors.greenAccent
+              : r['SubjAccuracy'] == 0
+              ? Colors.amberAccent
+              : Colors.white70;
+          c.drawCircle(Offset(xx, yy), 5, Paint()..color = color);
+          if (rows.length <= 16) {
+            label(
+              c,
+              rating.toStringAsFixed(0),
+              Offset(xx - 3, yy - 15),
+              color: color,
+            );
+          }
+        } else {
+          c.drawCircle(
+            Offset(xx, y(0)),
+            4,
+            Paint()
+              ..color = Colors.white38
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5,
+          );
+        }
+
+        if (rows.length <= 20 ||
+            i == 0 ||
+            i == rows.length - 1 ||
+            i % max(1, rows.length ~/ 10) == 0) {
+          label(c, '${r['Trial']}', Offset(xx - 5, bottom + 8));
+        }
+      }
+      return;
+    }
+
+    final rates = mode == HrdChartMode.heartAndFeedback;
     final values = <double>[if (!rates) 0];
     for (final r in rows) {
       for (final k
